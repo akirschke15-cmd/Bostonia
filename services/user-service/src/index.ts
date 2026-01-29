@@ -48,7 +48,13 @@ app.get('/api/users/:id', async (req, res) => {
         bio: true,
         role: true,
         createdAt: true,
-        _count: { select: { characters: true } },
+        _count: {
+          select: {
+            characters: true,
+            followers: true,
+            following: true,
+          },
+        },
       },
     });
 
@@ -211,6 +217,255 @@ app.get('/api/users/:id/credits/transactions', async (req, res) => {
   } catch (error) {
     logger.error(error, 'Error fetching transactions');
     res.status(500).json(errorResponse(ErrorCodes.INTERNAL_ERROR, 'Failed to fetch transactions'));
+  }
+});
+
+// ============================================================================
+// FOLLOW ENDPOINTS (Week 12 - Creator Following System)
+// ============================================================================
+
+// Follow a user
+app.post('/api/users/:id/follow', async (req, res) => {
+  try {
+    // Get current user ID from auth header (simplified - in production use proper auth middleware)
+    const currentUserId = req.headers['x-user-id'] as string;
+    if (!currentUserId) {
+      return res.status(401).json(errorResponse(ErrorCodes.UNAUTHORIZED, 'Authentication required'));
+    }
+
+    const targetUserId = req.params.id;
+
+    // Prevent self-follow
+    if (currentUserId === targetUserId) {
+      return res.status(400).json(errorResponse(ErrorCodes.VALIDATION_ERROR, 'Cannot follow yourself'));
+    }
+
+    // Check if target user exists
+    const targetUser = await prisma.user.findUnique({ where: { id: targetUserId } });
+    if (!targetUser) {
+      return res.status(404).json(errorResponse(ErrorCodes.NOT_FOUND, 'User not found'));
+    }
+
+    // Check if already following
+    const existingFollow = await prisma.follow.findUnique({
+      where: {
+        followerId_followingId: {
+          followerId: currentUserId,
+          followingId: targetUserId,
+        },
+      },
+    });
+
+    if (existingFollow) {
+      return res.status(409).json(errorResponse(ErrorCodes.ALREADY_EXISTS, 'Already following this user'));
+    }
+
+    // Create follow relationship
+    const follow = await prisma.follow.create({
+      data: {
+        followerId: currentUserId,
+        followingId: targetUserId,
+      },
+      include: {
+        following: {
+          select: {
+            id: true,
+            username: true,
+            displayName: true,
+            avatarUrl: true,
+          },
+        },
+      },
+    });
+
+    res.status(201).json(successResponse({
+      id: follow.id,
+      following: follow.following,
+      createdAt: follow.createdAt,
+    }));
+  } catch (error) {
+    logger.error(error, 'Error following user');
+    res.status(500).json(errorResponse(ErrorCodes.INTERNAL_ERROR, 'Failed to follow user'));
+  }
+});
+
+// Unfollow a user
+app.delete('/api/users/:id/follow', async (req, res) => {
+  try {
+    const currentUserId = req.headers['x-user-id'] as string;
+    if (!currentUserId) {
+      return res.status(401).json(errorResponse(ErrorCodes.UNAUTHORIZED, 'Authentication required'));
+    }
+
+    const targetUserId = req.params.id;
+
+    // Check if follow relationship exists
+    const existingFollow = await prisma.follow.findUnique({
+      where: {
+        followerId_followingId: {
+          followerId: currentUserId,
+          followingId: targetUserId,
+        },
+      },
+    });
+
+    if (!existingFollow) {
+      return res.status(404).json(errorResponse(ErrorCodes.NOT_FOUND, 'Not following this user'));
+    }
+
+    // Delete follow relationship
+    await prisma.follow.delete({
+      where: { id: existingFollow.id },
+    });
+
+    res.json(successResponse({ unfollowed: true, userId: targetUserId }));
+  } catch (error) {
+    logger.error(error, 'Error unfollowing user');
+    res.status(500).json(errorResponse(ErrorCodes.INTERNAL_ERROR, 'Failed to unfollow user'));
+  }
+});
+
+// Get user's followers (paginated)
+app.get('/api/users/:id/followers', async (req, res) => {
+  try {
+    const page = parseInt(req.query['page'] as string) || 1;
+    const limit = parseInt(req.query['limit'] as string) || 20;
+    const userId = req.params.id;
+
+    // Check if user exists
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user) {
+      return res.status(404).json(errorResponse(ErrorCodes.NOT_FOUND, 'User not found'));
+    }
+
+    const [followers, total] = await Promise.all([
+      prisma.follow.findMany({
+        where: { followingId: userId },
+        include: {
+          follower: {
+            select: {
+              id: true,
+              username: true,
+              displayName: true,
+              avatarUrl: true,
+              bio: true,
+              role: true,
+              _count: { select: { characters: true, followers: true } },
+            },
+          },
+        },
+        skip: (page - 1) * limit,
+        take: limit,
+        orderBy: { createdAt: 'desc' },
+      }),
+      prisma.follow.count({ where: { followingId: userId } }),
+    ]);
+
+    res.json(successResponse(
+      followers.map(f => ({
+        ...f.follower,
+        followedAt: f.createdAt,
+      })),
+      calculatePagination(page, limit, total)
+    ));
+  } catch (error) {
+    logger.error(error, 'Error fetching followers');
+    res.status(500).json(errorResponse(ErrorCodes.INTERNAL_ERROR, 'Failed to fetch followers'));
+  }
+});
+
+// Get who user follows (paginated)
+app.get('/api/users/:id/following', async (req, res) => {
+  try {
+    const page = parseInt(req.query['page'] as string) || 1;
+    const limit = parseInt(req.query['limit'] as string) || 20;
+    const userId = req.params.id;
+
+    // Check if user exists
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user) {
+      return res.status(404).json(errorResponse(ErrorCodes.NOT_FOUND, 'User not found'));
+    }
+
+    const [following, total] = await Promise.all([
+      prisma.follow.findMany({
+        where: { followerId: userId },
+        include: {
+          following: {
+            select: {
+              id: true,
+              username: true,
+              displayName: true,
+              avatarUrl: true,
+              bio: true,
+              role: true,
+              _count: { select: { characters: true, followers: true } },
+            },
+          },
+        },
+        skip: (page - 1) * limit,
+        take: limit,
+        orderBy: { createdAt: 'desc' },
+      }),
+      prisma.follow.count({ where: { followerId: userId } }),
+    ]);
+
+    res.json(successResponse(
+      following.map(f => ({
+        ...f.following,
+        followedAt: f.createdAt,
+      })),
+      calculatePagination(page, limit, total)
+    ));
+  } catch (error) {
+    logger.error(error, 'Error fetching following');
+    res.status(500).json(errorResponse(ErrorCodes.INTERNAL_ERROR, 'Failed to fetch following'));
+  }
+});
+
+// Check if current user follows target user
+app.get('/api/users/:id/follow-status', async (req, res) => {
+  try {
+    const currentUserId = req.headers['x-user-id'] as string;
+    if (!currentUserId) {
+      // Return not following if not authenticated
+      return res.json(successResponse({ isFollowing: false }));
+    }
+
+    const targetUserId = req.params.id;
+
+    // Check if target user exists
+    const targetUser = await prisma.user.findUnique({
+      where: { id: targetUserId },
+      select: {
+        id: true,
+        _count: { select: { followers: true, following: true } },
+      },
+    });
+
+    if (!targetUser) {
+      return res.status(404).json(errorResponse(ErrorCodes.NOT_FOUND, 'User not found'));
+    }
+
+    // Check if following
+    const follow = await prisma.follow.findUnique({
+      where: {
+        followerId_followingId: {
+          followerId: currentUserId,
+          followingId: targetUserId,
+        },
+      },
+    });
+
+    res.json(successResponse({
+      isFollowing: !!follow,
+      followedAt: follow?.createdAt || null,
+      followerCount: targetUser._count.followers,
+      followingCount: targetUser._count.following,
+    }));
+  } catch (error) {
+    logger.error(error, 'Error checking follow status');
+    res.status(500).json(errorResponse(ErrorCodes.INTERNAL_ERROR, 'Failed to check follow status'));
   }
 });
 

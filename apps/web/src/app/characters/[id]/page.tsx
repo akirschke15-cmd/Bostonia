@@ -12,11 +12,24 @@ import {
   Sparkles,
   Share2,
   Play,
+  GitFork,
 } from 'lucide-react';
 import { charactersApi, conversationsApi } from '@/lib/api';
 import { useAuthStore } from '@/lib/store';
 import { cn, getInitials } from '@/lib/utils';
+import { RemixButton, RemixBadge, RemixTree, RemixList } from '@/components/characters';
 import toast from 'react-hot-toast';
+
+interface ParentCharacter {
+  id: string;
+  name: string;
+  avatarUrl: string | null;
+  creator: {
+    id: string;
+    username: string;
+    displayName: string | null;
+  };
+}
 
 interface Character {
   id: string;
@@ -30,6 +43,10 @@ interface Character {
   chatCount: number;
   isFeatured: boolean;
   visibility: string;
+  isRemix: boolean;
+  remixCount: number;
+  allowRemix: boolean;
+  parentCharacter?: ParentCharacter;
   personalityData: {
     persona: string;
     scenario: string;
@@ -146,6 +163,13 @@ export default function CharacterDetailPage() {
       </header>
 
       <main className="container mx-auto px-4 py-8">
+        {/* Remix Attribution Banner (if this is a remix) */}
+        {character.isRemix && character.parentCharacter && (
+          <div className="mb-6">
+            <RemixBadge parentCharacter={character.parentCharacter} variant="full" />
+          </div>
+        )}
+
         {/* Character Header */}
         <div className="flex flex-col md:flex-row gap-8 mb-8">
           {/* Avatar */}
@@ -165,7 +189,7 @@ export default function CharacterDetailPage() {
 
           {/* Info */}
           <div className="flex-1">
-            <div className="flex items-center gap-3 mb-2">
+            <div className="flex items-center gap-3 mb-2 flex-wrap">
               <h1 className="text-3xl font-bold">{character.name}</h1>
               {character.isFeatured && (
                 <span className="flex items-center gap-1 px-2 py-1 bg-yellow-500/10 text-yellow-600 rounded-full text-sm">
@@ -173,12 +197,18 @@ export default function CharacterDetailPage() {
                   Featured
                 </span>
               )}
+              {character.isRemix && (
+                <span className="flex items-center gap-1 px-2 py-1 bg-purple-500/10 text-purple-400 rounded-full text-sm">
+                  <GitFork className="h-4 w-4" />
+                  Remix
+                </span>
+              )}
             </div>
 
             <p className="text-xl text-muted-foreground mb-4">{character.tagline}</p>
 
             {/* Stats */}
-            <div className="flex items-center gap-6 mb-6">
+            <div className="flex items-center gap-6 mb-6 flex-wrap">
               <span className="flex items-center gap-2">
                 <Star className="h-5 w-5 text-yellow-500" />
                 <span className="font-semibold">{character.rating.toFixed(1)}</span>
@@ -187,6 +217,12 @@ export default function CharacterDetailPage() {
                 <MessageSquare className="h-5 w-5 text-muted-foreground" />
                 <span>{character.chatCount.toLocaleString()} chats</span>
               </span>
+              {character.remixCount > 0 && (
+                <span className="flex items-center gap-2 text-purple-400">
+                  <GitFork className="h-5 w-5" />
+                  <span>{character.remixCount.toLocaleString()} remixes</span>
+                </span>
+              )}
               <span className="bg-muted px-3 py-1 rounded-full text-sm">
                 {character.category}
               </span>
@@ -205,7 +241,7 @@ export default function CharacterDetailPage() {
             </div>
 
             {/* Actions */}
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-4 flex-wrap">
               <button
                 onClick={handleStartChat}
                 disabled={isStartingChat || startChatMutation.isPending}
@@ -218,6 +254,14 @@ export default function CharacterDetailPage() {
                 <Play className="h-5 w-5" />
                 {isStartingChat || startChatMutation.isPending ? 'Starting...' : 'Start Chat'}
               </button>
+
+              {/* Remix Button */}
+              <RemixButton
+                characterId={characterId}
+                characterName={character.name}
+                allowRemix={character.allowRemix}
+              />
+
               <button
                 onClick={() => favoriteMutation.mutate()}
                 disabled={!isAuthenticated}
@@ -259,6 +303,20 @@ export default function CharacterDetailPage() {
                 </p>
               </section>
             )}
+
+            {/* Remix Ancestry Tree (if this is a remix) */}
+            {character.isRemix && (
+              <section className="bg-card border border-border rounded-xl p-6">
+                <RemixTree characterId={characterId} />
+              </section>
+            )}
+
+            {/* Community Remixes (if this character has been remixed) */}
+            {character.remixCount > 0 && (
+              <section className="bg-card border border-border rounded-xl p-6">
+                <RemixList characterId={characterId} />
+              </section>
+            )}
           </div>
 
           {/* Sidebar */}
@@ -275,6 +333,39 @@ export default function CharacterDetailPage() {
                   </p>
                   <p className="text-sm text-muted-foreground">@{character.creator?.username}</p>
                 </div>
+              </div>
+            </section>
+
+            {/* Remix Stats Section */}
+            <section className="bg-card border border-border rounded-xl p-6">
+              <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
+                <GitFork className="h-5 w-5 text-purple-400" />
+                Remix Info
+              </h2>
+              <div className="space-y-3">
+                <div className="flex justify-between items-center">
+                  <span className="text-muted-foreground">Times Remixed</span>
+                  <span className="font-semibold">{character.remixCount}</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-muted-foreground">Allow Remixing</span>
+                  <span className={cn(
+                    'px-2 py-1 rounded text-xs font-medium',
+                    character.allowRemix
+                      ? 'bg-green-500/20 text-green-400'
+                      : 'bg-red-500/20 text-red-400'
+                  )}>
+                    {character.allowRemix ? 'Enabled' : 'Disabled'}
+                  </span>
+                </div>
+                {character.isRemix && (
+                  <div className="flex justify-between items-center">
+                    <span className="text-muted-foreground">Type</span>
+                    <span className="px-2 py-1 rounded text-xs font-medium bg-purple-500/20 text-purple-400">
+                      Remix
+                    </span>
+                  </div>
+                )}
               </div>
             </section>
 

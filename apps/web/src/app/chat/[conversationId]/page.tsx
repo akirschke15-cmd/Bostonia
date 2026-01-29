@@ -12,7 +12,9 @@ import {
   RefreshCw,
   Download,
   Trash2,
+  Share2,
 } from 'lucide-react';
+import { ShareButton, ShareModal } from '@/components/conversations';
 import { conversationsApi } from '@/lib/api';
 import { useAuthStore, useChatStore } from '@/lib/store';
 import {
@@ -63,6 +65,7 @@ export default function ChatPage() {
   const [isSending, setIsSending] = useState(false);
   const [streamingContent, setStreamingContent] = useState('');
   const [showMenu, setShowMenu] = useState(false);
+  const [showShareModal, setShowShareModal] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -80,6 +83,23 @@ export default function ChatPage() {
     queryFn: () => conversationsApi.messages(conversationId, { limit: 50 }),
     enabled: !!conversationId && isAuthenticated,
   });
+
+  // Fetch share status
+  const { data: shareStatusData, isLoading: isLoadingShareStatus, refetch: refetchShareStatus } = useQuery({
+    queryKey: ['conversation-share', conversationId],
+    queryFn: () => conversationsApi.getShareStatus(conversationId),
+    enabled: !!conversationId && isAuthenticated,
+  });
+
+  const shareStatus = shareStatusData?.success ? shareStatusData.data as {
+    isPublic: boolean;
+    shareToken: string | null;
+    shareUrl: string | null;
+    sharedAt: string | null;
+    shareSettings: { allowComments?: boolean; showUsername?: boolean };
+    viewCount: number;
+    lastViewedAt: string | null;
+  } : null;
 
   const conversation = conversationData?.data as Conversation | undefined;
   const character = conversation?.character;
@@ -208,6 +228,33 @@ export default function ChatPage() {
     }
   };
 
+  // Handle share
+  const handleShare = async (settings: { allowComments?: boolean; showUsername?: boolean }) => {
+    const response = await conversationsApi.share(conversationId, settings);
+    if (!response.success || !response.data) {
+      throw new Error(response.error?.message || 'Failed to share');
+    }
+    await refetchShareStatus();
+    return response.data as NonNullable<typeof shareStatus>;
+  };
+
+  const handleUnshare = async () => {
+    const response = await conversationsApi.unshare(conversationId);
+    if (!response.success) {
+      throw new Error(response.error?.message || 'Failed to unshare');
+    }
+    await refetchShareStatus();
+  };
+
+  const handleUpdateShareSettings = async (settings: { allowComments?: boolean; showUsername?: boolean }) => {
+    const response = await conversationsApi.updateShareSettings(conversationId, settings);
+    if (!response.success || !response.data) {
+      throw new Error(response.error?.message || 'Failed to update settings');
+    }
+    await refetchShareStatus();
+    return response.data as NonNullable<typeof shareStatus>;
+  };
+
   // Handle export
   const handleExport = async (format: 'json' | 'txt') => {
     try {
@@ -300,32 +347,50 @@ export default function ChatPage() {
             </div>
           </div>
 
-          <div className="relative">
-            <button
-              onClick={() => setShowMenu(!showMenu)}
-              className="p-2 hover:bg-space-800 rounded-lg transition-colors text-space-300 hover:text-space-100"
-            >
-              <MoreVertical className="h-5 w-5" />
-            </button>
+          <div className="flex items-center gap-2">
+            {/* Share Button */}
+            <ShareButton
+              onClick={() => setShowShareModal(true)}
+              isShared={shareStatus?.isPublic || false}
+            />
 
-            {showMenu && (
-              <div className="absolute right-0 mt-2 w-48 bg-space-900/95 backdrop-blur-md border border-space-700/50 rounded-lg shadow-lg shadow-primary-500/10 py-1 z-50">
-                <button
-                  onClick={() => handleExport('txt')}
-                  className="w-full flex items-center gap-2 px-4 py-2 text-space-200 hover:bg-space-800 transition-colors"
-                >
-                  <Download className="h-4 w-4" />
-                  Export as TXT
-                </button>
-                <button
-                  onClick={() => handleExport('json')}
-                  className="w-full flex items-center gap-2 px-4 py-2 text-space-200 hover:bg-space-800 transition-colors"
-                >
-                  <Download className="h-4 w-4" />
-                  Export as JSON
-                </button>
-              </div>
-            )}
+            <div className="relative">
+              <button
+                onClick={() => setShowMenu(!showMenu)}
+                className="p-2 hover:bg-space-800 rounded-lg transition-colors text-space-300 hover:text-space-100"
+              >
+                <MoreVertical className="h-5 w-5" />
+              </button>
+
+              {showMenu && (
+                <div className="absolute right-0 mt-2 w-48 bg-space-900/95 backdrop-blur-md border border-space-700/50 rounded-lg shadow-lg shadow-primary-500/10 py-1 z-50">
+                  <button
+                    onClick={() => {
+                      setShowShareModal(true);
+                      setShowMenu(false);
+                    }}
+                    className="w-full flex items-center gap-2 px-4 py-2 text-space-200 hover:bg-space-800 transition-colors"
+                  >
+                    <Share2 className="h-4 w-4" />
+                    {shareStatus?.isPublic ? 'Manage sharing' : 'Share conversation'}
+                  </button>
+                  <button
+                    onClick={() => handleExport('txt')}
+                    className="w-full flex items-center gap-2 px-4 py-2 text-space-200 hover:bg-space-800 transition-colors"
+                  >
+                    <Download className="h-4 w-4" />
+                    Export as TXT
+                  </button>
+                  <button
+                    onClick={() => handleExport('json')}
+                    className="w-full flex items-center gap-2 px-4 py-2 text-space-200 hover:bg-space-800 transition-colors"
+                  >
+                    <Download className="h-4 w-4" />
+                    Export as JSON
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </header>
@@ -468,6 +533,19 @@ export default function ChatPage() {
           </p>
         </div>
       </div>
+
+      {/* Share Modal */}
+      <ShareModal
+        isOpen={showShareModal}
+        onClose={() => setShowShareModal(false)}
+        conversationId={conversationId}
+        conversationTitle={conversation?.title || `Chat with ${character?.name}`}
+        onShare={handleShare}
+        onUnshare={handleUnshare}
+        onUpdateSettings={handleUpdateShareSettings}
+        initialStatus={shareStatus}
+        isLoading={isLoadingShareStatus}
+      />
     </div>
   );
 }

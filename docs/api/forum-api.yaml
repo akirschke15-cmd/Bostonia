@@ -1,0 +1,1667 @@
+openapi: 3.0.3
+info:
+  title: Bostonia Community Forums API
+  description: |
+    Community Forums API for Bostonia AI Character Chat Platform.
+
+    This service handles all forum-related functionality including:
+    - Forum categories and organization
+    - Thread creation and management
+    - Post replies and editing
+    - Reactions (like, helpful, funny)
+    - Moderation (pin, lock, delete)
+    - Search and discovery
+
+    ## Forum Structure
+
+    ```
+    Categories
+    └── Threads (Topics)
+        └── Posts (Replies)
+            └── Reactions
+    ```
+
+    ## User Roles & Permissions
+
+    | Role | Create | Edit Own | Edit Any | Pin/Lock | Delete Any |
+    |------|--------|----------|----------|----------|------------|
+    | User | Yes | Yes | No | No | No |
+    | Creator | Yes | Yes | No | No | No |
+    | Moderator | Yes | Yes | Yes | Yes | Yes |
+    | Admin | Yes | Yes | Yes | Yes | Yes |
+
+  version: 1.0.0
+  contact:
+    name: Bostonia API Team
+    email: api@bostonia.ai
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: http://localhost:3006
+    description: Local development server
+  - url: https://api.bostonia.ai/forums
+    description: Production server
+
+tags:
+  - name: Categories
+    description: Forum category endpoints
+  - name: Threads
+    description: Forum thread endpoints
+  - name: Posts
+    description: Forum post/reply endpoints
+  - name: Reactions
+    description: Post reaction endpoints
+  - name: Moderation
+    description: Moderation actions (Admin/Moderator only)
+  - name: Search
+    description: Forum search endpoints
+  - name: Health
+    description: Service health check endpoints
+
+paths:
+  # ============================================================================
+  # HEALTH CHECK
+  # ============================================================================
+  /health:
+    get:
+      tags:
+        - Health
+      summary: Health check
+      description: Returns the health status of the Forum Service
+      operationId: healthCheck
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+              example:
+                success: true
+                data:
+                  status: healthy
+                  service: forum-service
+
+  # ============================================================================
+  # CATEGORIES
+  # ============================================================================
+  /api/forums/categories:
+    get:
+      tags:
+        - Categories
+      summary: List all categories
+      description: |
+        Returns a list of all active forum categories with thread counts
+        and latest thread information.
+
+        Results are sorted by `sortOrder` (ascending).
+      operationId: listCategories
+      responses:
+        '200':
+          description: List of forum categories
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CategoryListResponse'
+              example:
+                success: true
+                data:
+                  - id: cat_abc123
+                    name: General Discussion
+                    slug: general
+                    description: Chat about anything related to Bostonia
+                    icon: "💬"
+                    sortOrder: 1
+                    threadCount: 156
+                    postCount: 1247
+                    latestThread:
+                      id: thread_xyz789
+                      title: Welcome to the community!
+                      author:
+                        id: usr_123
+                        username: johndoe
+                        avatarUrl: https://example.com/avatar.jpg
+                      createdAt: '2026-01-29T10:00:00Z'
+
+  /api/forums/categories/{slug}:
+    get:
+      tags:
+        - Categories
+      summary: Get category by slug
+      description: Returns detailed information about a specific category
+      operationId: getCategory
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          description: Category URL slug
+          schema:
+            type: string
+          example: general
+      responses:
+        '200':
+          description: Category details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CategoryResponse'
+        '404':
+          description: Category not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                success: false
+                error:
+                  code: CATEGORY_NOT_FOUND
+                  message: Category not found
+
+  /api/forums/categories/{slug}/threads:
+    get:
+      tags:
+        - Categories
+      summary: List threads in category
+      description: |
+        Returns a paginated list of threads in the specified category.
+
+        Pinned threads are always returned first, followed by regular threads
+        sorted according to the `sort` parameter.
+      operationId: listCategoryThreads
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          description: Category URL slug
+          schema:
+            type: string
+          example: general
+        - name: page
+          in: query
+          description: Page number (1-indexed)
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: limit
+          in: query
+          description: Items per page
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 20
+        - name: sort
+          in: query
+          description: Sort order for threads
+          schema:
+            type: string
+            enum: [latest, oldest, most_replies, most_views, last_activity]
+            default: latest
+      responses:
+        '200':
+          description: List of threads
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ThreadListResponse'
+              example:
+                success: true
+                data:
+                  - id: thread_abc123
+                    title: How to create engaging characters?
+                    author:
+                      id: usr_123
+                      username: johndoe
+                      displayName: John Doe
+                      avatarUrl: https://example.com/avatar.jpg
+                    isPinned: false
+                    isLocked: false
+                    viewCount: 234
+                    replyCount: 15
+                    lastReplyAt: '2026-01-29T14:30:00Z'
+                    lastReplyBy:
+                      id: usr_456
+                      username: janedoe
+                    createdAt: '2026-01-28T10:00:00Z'
+                meta:
+                  page: 1
+                  limit: 20
+                  total: 156
+                  totalPages: 8
+        '404':
+          description: Category not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # ============================================================================
+  # THREADS
+  # ============================================================================
+  /api/forums/threads:
+    post:
+      tags:
+        - Threads
+      summary: Create new thread
+      description: |
+        Creates a new thread in the specified category.
+
+        The authenticated user becomes the thread author.
+        Content supports Markdown formatting.
+      operationId: createThread
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateThreadRequest'
+            example:
+              categoryId: cat_abc123
+              title: Tips for writing character backstories
+              content: |
+                # Character Backstories
+
+                I've been experimenting with different approaches to writing
+                compelling character backstories. Here are some tips...
+
+                ## Key Elements
+                1. Origin story
+                2. Motivations
+                3. Conflicts
+      responses:
+        '201':
+          description: Thread created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ThreadResponse'
+              example:
+                success: true
+                data:
+                  id: thread_new123
+                  categoryId: cat_abc123
+                  category:
+                    name: General Discussion
+                    slug: general
+                  title: Tips for writing character backstories
+                  content: "# Character Backstories\n\nI've been experimenting..."
+                  author:
+                    id: usr_123
+                    username: johndoe
+                    displayName: John Doe
+                    avatarUrl: https://example.com/avatar.jpg
+                  isPinned: false
+                  isLocked: false
+                  viewCount: 0
+                  replyCount: 0
+                  createdAt: '2026-01-29T15:00:00Z'
+                  updatedAt: '2026-01-29T15:00:00Z'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Category not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Rate limit exceeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                success: false
+                error:
+                  code: RATE_LIMITED
+                  message: Too many threads created. Please wait before creating more.
+
+  /api/forums/threads/{id}:
+    get:
+      tags:
+        - Threads
+      summary: Get thread with posts
+      description: |
+        Returns the thread details along with paginated posts/replies.
+
+        Automatically increments the view count (debounced per user session).
+      operationId: getThread
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Thread ID
+          schema:
+            type: string
+        - name: page
+          in: query
+          description: Page number for posts
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: limit
+          in: query
+          description: Posts per page
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+      responses:
+        '200':
+          description: Thread with posts
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ThreadDetailResponse'
+              example:
+                success: true
+                data:
+                  thread:
+                    id: thread_abc123
+                    categoryId: cat_xyz789
+                    category:
+                      name: General Discussion
+                      slug: general
+                    title: How to create engaging characters?
+                    content: "I've been wondering about the best practices..."
+                    author:
+                      id: usr_123
+                      username: johndoe
+                      displayName: John Doe
+                      avatarUrl: https://example.com/avatar.jpg
+                      role: CREATOR
+                    isPinned: false
+                    isLocked: false
+                    viewCount: 235
+                    replyCount: 15
+                    createdAt: '2026-01-28T10:00:00Z'
+                    updatedAt: '2026-01-28T10:00:00Z'
+                  posts:
+                    - id: post_001
+                      content: Great question! I think the key is...
+                      author:
+                        id: usr_456
+                        username: janedoe
+                        displayName: Jane Doe
+                        avatarUrl: https://example.com/jane.jpg
+                        role: USER
+                      isEdited: false
+                      createdAt: '2026-01-28T10:30:00Z'
+                      updatedAt: '2026-01-28T10:30:00Z'
+                      reactions:
+                        - type: like
+                          count: 5
+                          userReacted: true
+                        - type: helpful
+                          count: 3
+                          userReacted: false
+                  meta:
+                    page: 1
+                    limit: 50
+                    total: 15
+                    totalPages: 1
+        '404':
+          description: Thread not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    patch:
+      tags:
+        - Threads
+      summary: Update thread
+      description: |
+        Updates thread title or content.
+
+        - Regular users can only edit their own threads
+        - Moderators/Admins can edit any thread
+        - Editing marks the thread as updated
+      operationId: updateThread
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateThreadRequest'
+            example:
+              title: Updated title
+              content: Updated content with more details...
+      responses:
+        '200':
+          description: Thread updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ThreadResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: Permission denied
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                success: false
+                error:
+                  code: PERMISSION_DENIED
+                  message: You can only edit your own threads
+        '404':
+          description: Thread not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    delete:
+      tags:
+        - Threads
+      summary: Delete thread
+      description: |
+        Deletes a thread and all its posts.
+
+        - Regular users can only delete their own threads
+        - Moderators/Admins can delete any thread
+      operationId: deleteThread
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Thread deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+              example:
+                success: true
+                message: Thread deleted successfully
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: Permission denied
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Thread not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # ============================================================================
+  # POSTS
+  # ============================================================================
+  /api/forums/threads/{id}/posts:
+    post:
+      tags:
+        - Posts
+      summary: Add reply to thread
+      description: |
+        Creates a new post/reply in the thread.
+
+        - Thread must not be locked
+        - Content supports Markdown formatting
+        - Updates thread's lastReplyAt and replyCount
+      operationId: createPost
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Thread ID
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatePostRequest'
+            example:
+              content: |
+                Thanks for the tips! I especially like the point about
+                making backstories relevant to the character's current motivations.
+
+                One thing I'd add is...
+      responses:
+        '201':
+          description: Post created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PostResponse'
+              example:
+                success: true
+                data:
+                  id: post_new456
+                  threadId: thread_abc123
+                  content: "Thanks for the tips! I especially like..."
+                  author:
+                    id: usr_789
+                    username: newuser
+                    displayName: New User
+                    avatarUrl: null
+                  isEdited: false
+                  createdAt: '2026-01-29T16:00:00Z'
+                  updatedAt: '2026-01-29T16:00:00Z'
+                  reactions: []
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: Thread is locked
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                success: false
+                error:
+                  code: THREAD_LOCKED
+                  message: This thread is locked and no longer accepts replies
+        '404':
+          description: Thread not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Rate limit exceeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/forums/posts/{id}:
+    patch:
+      tags:
+        - Posts
+      summary: Edit post
+      description: |
+        Updates a post's content.
+
+        - Regular users can only edit their own posts
+        - Moderators/Admins can edit any post
+        - Marks the post as edited
+      operationId: updatePost
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Post ID
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdatePostRequest'
+            example:
+              content: Updated post content with corrections...
+      responses:
+        '200':
+          description: Post updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PostResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: Permission denied
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Post not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    delete:
+      tags:
+        - Posts
+      summary: Delete post
+      description: |
+        Deletes a post and all its reactions.
+
+        - Regular users can only delete their own posts
+        - Moderators/Admins can delete any post
+        - Decrements the thread's replyCount
+      operationId: deletePost
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Post deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: Permission denied
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Post not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # ============================================================================
+  # REACTIONS
+  # ============================================================================
+  /api/forums/posts/{id}/reactions:
+    post:
+      tags:
+        - Reactions
+      summary: Add reaction to post
+      description: |
+        Adds a reaction to a post.
+
+        - Users can add one reaction of each type per post
+        - Adding the same reaction type again is idempotent
+      operationId: addReaction
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Post ID
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddReactionRequest'
+            example:
+              type: helpful
+      responses:
+        '200':
+          description: Reaction added (or already exists)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReactionResponse'
+              example:
+                success: true
+                data:
+                  reactions:
+                    - type: like
+                      count: 5
+                      userReacted: false
+                    - type: helpful
+                      count: 4
+                      userReacted: true
+                    - type: funny
+                      count: 1
+                      userReacted: false
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Post not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Rate limit exceeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/forums/posts/{id}/reactions/{type}:
+    delete:
+      tags:
+        - Reactions
+      summary: Remove reaction from post
+      description: Removes the user's reaction of the specified type from a post
+      operationId: removeReaction
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Post ID
+          schema:
+            type: string
+        - name: type
+          in: path
+          required: true
+          description: Reaction type to remove
+          schema:
+            type: string
+            enum: [like, helpful, funny]
+      responses:
+        '200':
+          description: Reaction removed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReactionResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Post or reaction not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # ============================================================================
+  # MODERATION
+  # ============================================================================
+  /api/forums/threads/{id}/pin:
+    post:
+      tags:
+        - Moderation
+      summary: Pin or unpin thread
+      description: |
+        Toggles the pinned status of a thread.
+
+        Pinned threads appear at the top of category listings.
+
+        **Requires:** Moderator or Admin role
+      operationId: togglePinThread
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PinThreadRequest'
+            example:
+              isPinned: true
+      responses:
+        '200':
+          description: Thread pin status updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ThreadResponse'
+              example:
+                success: true
+                data:
+                  id: thread_abc123
+                  isPinned: true
+                  # ... other thread fields
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: Requires moderator or admin role
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                success: false
+                error:
+                  code: PERMISSION_DENIED
+                  message: This action requires moderator privileges
+        '404':
+          description: Thread not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/forums/threads/{id}/lock:
+    post:
+      tags:
+        - Moderation
+      summary: Lock or unlock thread
+      description: |
+        Toggles the locked status of a thread.
+
+        Locked threads cannot receive new replies.
+
+        **Requires:** Moderator or Admin role
+      operationId: toggleLockThread
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LockThreadRequest'
+            example:
+              isLocked: true
+              reason: Discussion has concluded
+      responses:
+        '200':
+          description: Thread lock status updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ThreadResponse'
+              example:
+                success: true
+                data:
+                  id: thread_abc123
+                  isLocked: true
+                  # ... other thread fields
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: Requires moderator or admin role
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Thread not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/forums/moderation/content/{contentType}/{id}:
+    delete:
+      tags:
+        - Moderation
+      summary: Force delete content
+      description: |
+        Permanently deletes content (thread or post) with moderation logging.
+
+        This is a hard delete that bypasses normal ownership checks.
+
+        **Requires:** Moderator or Admin role
+      operationId: forceDeleteContent
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: contentType
+          in: path
+          required: true
+          description: Type of content to delete
+          schema:
+            type: string
+            enum: [thread, post]
+        - name: id
+          in: path
+          required: true
+          description: Content ID
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ModerationDeleteRequest'
+            example:
+              reason: Violated community guidelines - spam
+      responses:
+        '200':
+          description: Content deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+              example:
+                success: true
+                message: Content deleted and logged
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: Requires moderator or admin role
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Content not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # ============================================================================
+  # SEARCH
+  # ============================================================================
+  /api/forums/search:
+    get:
+      tags:
+        - Search
+      summary: Search forum content
+      description: |
+        Searches threads and posts using full-text search.
+
+        Results are ranked by relevance.
+      operationId: searchForum
+      parameters:
+        - name: q
+          in: query
+          required: true
+          description: Search query
+          schema:
+            type: string
+            minLength: 2
+            maxLength: 100
+          example: character creation tips
+        - name: type
+          in: query
+          description: Filter by content type
+          schema:
+            type: string
+            enum: [all, threads, posts]
+            default: all
+        - name: category
+          in: query
+          description: Filter by category slug
+          schema:
+            type: string
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 20
+      responses:
+        '200':
+          description: Search results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SearchResponse'
+              example:
+                success: true
+                data:
+                  - type: thread
+                    id: thread_abc123
+                    title: Tips for creating engaging characters
+                    excerpt: "...here are some **tips** for **character creation**..."
+                    author:
+                      id: usr_123
+                      username: johndoe
+                    category:
+                      name: Character Creation
+                      slug: character-creation
+                    createdAt: '2026-01-28T10:00:00Z'
+                    relevanceScore: 0.95
+                  - type: post
+                    id: post_xyz789
+                    threadId: thread_def456
+                    threadTitle: General discussion about characters
+                    excerpt: "...I found these **tips** really helpful for **creation**..."
+                    author:
+                      id: usr_456
+                      username: janedoe
+                    createdAt: '2026-01-28T11:00:00Z'
+                    relevanceScore: 0.82
+                meta:
+                  page: 1
+                  limit: 20
+                  total: 45
+                  totalPages: 3
+                  query: character creation tips
+        '400':
+          description: Invalid search query
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                success: false
+                error:
+                  code: INVALID_INPUT
+                  message: Search query must be at least 2 characters
+        '429':
+          description: Rate limit exceeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # ============================================================================
+  # DISCOVERY
+  # ============================================================================
+  /api/forums/trending:
+    get:
+      tags:
+        - Search
+      summary: Get trending threads
+      description: |
+        Returns threads with high activity in the last 24 hours.
+
+        Ranking is based on views, replies, and recency.
+      operationId: getTrendingThreads
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 20
+            default: 10
+      responses:
+        '200':
+          description: Trending threads
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ThreadListResponse'
+
+  /api/forums/recent:
+    get:
+      tags:
+        - Search
+      summary: Get recent activity
+      description: Returns the most recent posts across all threads
+      operationId: getRecentActivity
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 20
+      responses:
+        '200':
+          description: Recent activity
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RecentActivityResponse'
+
+# ============================================================================
+# COMPONENTS
+# ============================================================================
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT access token from Auth Service
+
+  responses:
+    Unauthorized:
+      description: Authentication required
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            success: false
+            error:
+              code: UNAUTHORIZED
+              message: Not authenticated
+
+    ValidationError:
+      description: Invalid input data
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            success: false
+            error:
+              code: INVALID_INPUT
+              message: Validation failed
+              details:
+                - field: title
+                  message: Title must be between 5 and 200 characters
+
+  schemas:
+    # Base Response Types
+    ErrorResponse:
+      type: object
+      required:
+        - success
+        - error
+      properties:
+        success:
+          type: boolean
+          enum: [false]
+        error:
+          type: object
+          required:
+            - code
+            - message
+          properties:
+            code:
+              type: string
+              enum:
+                - UNAUTHORIZED
+                - PERMISSION_DENIED
+                - NOT_FOUND
+                - CATEGORY_NOT_FOUND
+                - THREAD_NOT_FOUND
+                - POST_NOT_FOUND
+                - THREAD_LOCKED
+                - INVALID_INPUT
+                - RATE_LIMITED
+                - CONTENT_FLAGGED
+                - DUPLICATE_CONTENT
+                - INTERNAL_ERROR
+            message:
+              type: string
+            details:
+              type: array
+              items:
+                type: object
+                properties:
+                  field:
+                    type: string
+                  message:
+                    type: string
+
+    SuccessResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          enum: [true]
+        message:
+          type: string
+
+    HealthResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          properties:
+            status:
+              type: string
+            service:
+              type: string
+
+    PaginationMeta:
+      type: object
+      properties:
+        page:
+          type: integer
+        limit:
+          type: integer
+        total:
+          type: integer
+        totalPages:
+          type: integer
+
+    # User Types
+    UserSummary:
+      type: object
+      properties:
+        id:
+          type: string
+        username:
+          type: string
+        displayName:
+          type: string
+          nullable: true
+        avatarUrl:
+          type: string
+          nullable: true
+        role:
+          type: string
+          enum: [USER, CREATOR, MODERATOR, ADMIN]
+
+    UserBrief:
+      type: object
+      properties:
+        id:
+          type: string
+        username:
+          type: string
+
+    # Category Types
+    Category:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        slug:
+          type: string
+        description:
+          type: string
+          nullable: true
+        icon:
+          type: string
+          nullable: true
+        sortOrder:
+          type: integer
+        threadCount:
+          type: integer
+        postCount:
+          type: integer
+        latestThread:
+          type: object
+          nullable: true
+          properties:
+            id:
+              type: string
+            title:
+              type: string
+            author:
+              $ref: '#/components/schemas/UserBrief'
+            createdAt:
+              type: string
+              format: date-time
+
+    CategoryListResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Category'
+
+    CategoryResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          $ref: '#/components/schemas/Category'
+
+    # Thread Types
+    ThreadSummary:
+      type: object
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        author:
+          $ref: '#/components/schemas/UserSummary'
+        isPinned:
+          type: boolean
+        isLocked:
+          type: boolean
+        viewCount:
+          type: integer
+        replyCount:
+          type: integer
+        lastReplyAt:
+          type: string
+          format: date-time
+          nullable: true
+        lastReplyBy:
+          $ref: '#/components/schemas/UserBrief'
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+
+    Thread:
+      allOf:
+        - $ref: '#/components/schemas/ThreadSummary'
+        - type: object
+          properties:
+            categoryId:
+              type: string
+            category:
+              type: object
+              properties:
+                name:
+                  type: string
+                slug:
+                  type: string
+            content:
+              type: string
+            updatedAt:
+              type: string
+              format: date-time
+
+    ThreadListResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/ThreadSummary'
+        meta:
+          $ref: '#/components/schemas/PaginationMeta'
+
+    ThreadResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          $ref: '#/components/schemas/Thread'
+
+    ThreadDetailResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          properties:
+            thread:
+              $ref: '#/components/schemas/Thread'
+            posts:
+              type: array
+              items:
+                $ref: '#/components/schemas/Post'
+            meta:
+              $ref: '#/components/schemas/PaginationMeta'
+
+    CreateThreadRequest:
+      type: object
+      required:
+        - categoryId
+        - title
+        - content
+      properties:
+        categoryId:
+          type: string
+          description: ID of the category to create thread in
+        title:
+          type: string
+          minLength: 5
+          maxLength: 200
+          description: Thread title
+        content:
+          type: string
+          minLength: 10
+          maxLength: 50000
+          description: Thread content (Markdown supported)
+
+    UpdateThreadRequest:
+      type: object
+      properties:
+        title:
+          type: string
+          minLength: 5
+          maxLength: 200
+        content:
+          type: string
+          minLength: 10
+          maxLength: 50000
+
+    # Post Types
+    ReactionCount:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [like, helpful, funny]
+        count:
+          type: integer
+        userReacted:
+          type: boolean
+          description: Whether the current user has added this reaction
+
+    Post:
+      type: object
+      properties:
+        id:
+          type: string
+        threadId:
+          type: string
+        content:
+          type: string
+        author:
+          $ref: '#/components/schemas/UserSummary'
+        isEdited:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        reactions:
+          type: array
+          items:
+            $ref: '#/components/schemas/ReactionCount'
+
+    PostResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          $ref: '#/components/schemas/Post'
+
+    CreatePostRequest:
+      type: object
+      required:
+        - content
+      properties:
+        content:
+          type: string
+          minLength: 1
+          maxLength: 50000
+          description: Post content (Markdown supported)
+
+    UpdatePostRequest:
+      type: object
+      required:
+        - content
+      properties:
+        content:
+          type: string
+          minLength: 1
+          maxLength: 50000
+
+    # Reaction Types
+    AddReactionRequest:
+      type: object
+      required:
+        - type
+      properties:
+        type:
+          type: string
+          enum: [like, helpful, funny]
+
+    ReactionResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          properties:
+            reactions:
+              type: array
+              items:
+                $ref: '#/components/schemas/ReactionCount'
+
+    # Moderation Types
+    PinThreadRequest:
+      type: object
+      required:
+        - isPinned
+      properties:
+        isPinned:
+          type: boolean
+
+    LockThreadRequest:
+      type: object
+      required:
+        - isLocked
+      properties:
+        isLocked:
+          type: boolean
+        reason:
+          type: string
+          maxLength: 500
+          description: Optional reason for locking (shown to users)
+
+    ModerationDeleteRequest:
+      type: object
+      required:
+        - reason
+      properties:
+        reason:
+          type: string
+          minLength: 5
+          maxLength: 500
+          description: Reason for deletion (logged for auditing)
+
+    # Search Types
+    SearchResult:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [thread, post]
+        id:
+          type: string
+        title:
+          type: string
+          description: Thread title (for threads) or null (for posts)
+          nullable: true
+        threadId:
+          type: string
+          description: Parent thread ID (for posts only)
+          nullable: true
+        threadTitle:
+          type: string
+          description: Parent thread title (for posts only)
+          nullable: true
+        excerpt:
+          type: string
+          description: Highlighted excerpt with search terms
+        author:
+          $ref: '#/components/schemas/UserBrief'
+        category:
+          type: object
+          nullable: true
+          properties:
+            name:
+              type: string
+            slug:
+              type: string
+        createdAt:
+          type: string
+          format: date-time
+        relevanceScore:
+          type: number
+          format: float
+
+    SearchResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/SearchResult'
+        meta:
+          allOf:
+            - $ref: '#/components/schemas/PaginationMeta'
+            - type: object
+              properties:
+                query:
+                  type: string
+
+    # Recent Activity
+    RecentActivityItem:
+      type: object
+      properties:
+        thread:
+          $ref: '#/components/schemas/ThreadSummary'
+        latestPost:
+          type: object
+          properties:
+            id:
+              type: string
+            content:
+              type: string
+              description: Truncated content preview
+            author:
+              $ref: '#/components/schemas/UserBrief'
+            createdAt:
+              type: string
+              format: date-time
+
+    RecentActivityResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/RecentActivityItem'

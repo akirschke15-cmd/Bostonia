@@ -27,6 +27,7 @@ import {
   calculatePagination,
   estimateTokenCount,
 } from '@bostonia/shared';
+import crypto from 'crypto';
 
 const logger = pino({ level: getEnv('LOG_LEVEL', 'info') });
 const PORT = parseInt(getEnv('PORT', '3004'), 10);
@@ -126,6 +127,11 @@ app.get('/api/conversations', async (req, res) => {
           character: {
             select: { id: true, name: true, avatarUrl: true },
           },
+          messages: {
+            orderBy: { createdAt: 'desc' },
+            take: 1,
+            select: { id: true, content: true, role: true, createdAt: true },
+          },
         },
         skip: (page - 1) * limit,
         take: limit,
@@ -134,7 +140,14 @@ app.get('/api/conversations', async (req, res) => {
       prisma.conversation.count({ where }),
     ]);
 
-    res.json(successResponse(conversations, calculatePagination(page, limit, total)));
+    // Transform to include lastMessage as a single object instead of array
+    const conversationsWithLastMessage = conversations.map((conv) => ({
+      ...conv,
+      lastMessage: conv.messages[0] || null,
+      messages: undefined, // Remove the messages array
+    }));
+
+    res.json(successResponse(conversationsWithLastMessage, calculatePagination(page, limit, total)));
   } catch (error) {
     logger.error(error, 'Error listing conversations');
     res.status(500).json(errorResponse(ErrorCodes.INTERNAL_ERROR, 'Failed to list conversations'));
@@ -373,6 +386,263 @@ app.get('/api/conversations/:id/export', async (req, res) => {
   } catch (error) {
     logger.error(error, 'Error exporting conversation');
     res.status(500).json(errorResponse(ErrorCodes.INTERNAL_ERROR, 'Failed to export conversation'));
+  }
+});
+
+// ============================================================================
+// SHARE ENDPOINTS
+// ============================================================================
+
+// Generate share link for conversation
+app.post('/api/conversations/:id/share', authMiddleware, async (req, res) => {
+  try {
+    const userId = req.headers['x-user-id'] as string;
+    if (!userId) {
+      return res.status(401).json(errorResponse(ErrorCodes.UNAUTHORIZED, 'Not authenticated'));
+    }
+
+    const conversationId = req.params.id!;
+
+    // Verify ownership
+    const conversation = await prisma.conversation.findUnique({
+      where: { id: conversationId },
+    });
+
+    if (!conversation) {
+      return res.status(404).json(errorResponse(ErrorCodes.NOT_FOUND, 'Conversation not found'));
+    }
+
+    if (conversation.userId !== userId) {
+      return res.status(403).json(errorResponse(ErrorCodes.FORBIDDEN, 'Not authorized to share this conversation'));
+    }
+
+    // Generate unique share token
+    const shareToken = crypto.randomBytes(16).toString('hex');
+
+    // Update conversation with share settings
+    const updatedConversation = await prisma.conversation.update({
+      where: { id: conversationId },
+      data: {
+        isPublic: true,
+        shareToken,
+        sharedAt: new Date(),
+        shareSettings: req.body.settings || { allowComments: false, showUsername: true },
+      },
+    });
+
+    // Create or update ConversationShare record
+    await prisma.conversationShare.upsert({
+      where: { conversationId: conversationId },
+      create: {
+        conversationId: conversationId,
+        viewCount: 0,
+      },
+      update: {},
+    });
+
+    res.json(successResponse({
+      shareToken,
+      shareUrl: `/shared/${shareToken}`,
+      isPublic: true,
+      sharedAt: updatedConversation.sharedAt,
+      shareSettings: updatedConversation.shareSettings,
+    }));
+  } catch (error) {
+    logger.error(error, 'Error sharing conversation');
+    res.status(500).json(errorResponse(ErrorCodes.INTERNAL_ERROR, 'Failed to share conversation'));
+  }
+});
+
+// Remove sharing from conversation
+app.delete('/api/conversations/:id/share', authMiddleware, async (req, res) => {
+  try {
+    const userId = req.headers['x-user-id'] as string;
+    if (!userId) {
+      return res.status(401).json(errorResponse(ErrorCodes.UNAUTHORIZED, 'Not authenticated'));
+    }
+
+    const conversationId = req.params.id;
+
+    // Verify ownership
+    const conversation = await prisma.conversation.findUnique({
+      where: { id: conversationId },
+    });
+
+    if (!conversation) {
+      return res.status(404).json(errorResponse(ErrorCodes.NOT_FOUND, 'Conversation not found'));
+    }
+
+    if (conversation.userId !== userId) {
+      return res.status(403).json(errorResponse(ErrorCodes.FORBIDDEN, 'Not authorized to modify this conversation'));
+    }
+
+    // Remove share settings
+    await prisma.conversation.update({
+      where: { id: conversationId },
+      data: {
+        isPublic: false,
+        shareToken: null,
+        sharedAt: null,
+        shareSettings: {},
+      },
+    });
+
+    // Delete ConversationShare record
+    await prisma.conversationShare.deleteMany({
+      where: { conversationId },
+    });
+
+    res.json(successResponse({ message: 'Sharing disabled successfully' }));
+  } catch (error) {
+    logger.error(error, 'Error removing share');
+    res.status(500).json(errorResponse(ErrorCodes.INTERNAL_ERROR, 'Failed to remove sharing'));
+  }
+});
+
+// Update share settings
+app.patch('/api/conversations/:id/share', authMiddleware, async (req, res) => {
+  try {
+    const userId = req.headers['x-user-id'] as string;
+    if (!userId) {
+      return res.status(401).json(errorResponse(ErrorCodes.UNAUTHORIZED, 'Not authenticated'));
+    }
+
+    const conversationId = req.params.id;
+
+    // Verify ownership
+    const conversation = await prisma.conversation.findUnique({
+      where: { id: conversationId },
+    });
+
+    if (!conversation) {
+      return res.status(404).json(errorResponse(ErrorCodes.NOT_FOUND, 'Conversation not found'));
+    }
+
+    if (conversation.userId !== userId) {
+      return res.status(403).json(errorResponse(ErrorCodes.FORBIDDEN, 'Not authorized to modify this conversation'));
+    }
+
+    if (!conversation.isPublic) {
+      return res.status(400).json(errorResponse(ErrorCodes.VALIDATION_ERROR, 'Conversation is not shared'));
+    }
+
+    // Update share settings
+    const updatedConversation = await prisma.conversation.update({
+      where: { id: conversationId },
+      data: {
+        shareSettings: req.body.settings || conversation.shareSettings,
+      },
+    });
+
+    res.json(successResponse({
+      shareToken: updatedConversation.shareToken,
+      shareUrl: `/shared/${updatedConversation.shareToken}`,
+      isPublic: updatedConversation.isPublic,
+      sharedAt: updatedConversation.sharedAt,
+      shareSettings: updatedConversation.shareSettings,
+    }));
+  } catch (error) {
+    logger.error(error, 'Error updating share settings');
+    res.status(500).json(errorResponse(ErrorCodes.INTERNAL_ERROR, 'Failed to update share settings'));
+  }
+});
+
+// Get share status for a conversation
+app.get('/api/conversations/:id/share', authMiddleware, async (req, res) => {
+  try {
+    const userId = req.headers['x-user-id'] as string;
+    if (!userId) {
+      return res.status(401).json(errorResponse(ErrorCodes.UNAUTHORIZED, 'Not authenticated'));
+    }
+
+    const conversationId = req.params.id;
+
+    const conversation = await prisma.conversation.findUnique({
+      where: { id: conversationId },
+      include: {
+        share: true,
+      },
+    });
+
+    if (!conversation) {
+      return res.status(404).json(errorResponse(ErrorCodes.NOT_FOUND, 'Conversation not found'));
+    }
+
+    if (conversation.userId !== userId) {
+      return res.status(403).json(errorResponse(ErrorCodes.FORBIDDEN, 'Not authorized to view this conversation'));
+    }
+
+    res.json(successResponse({
+      isPublic: conversation.isPublic,
+      shareToken: conversation.shareToken,
+      shareUrl: conversation.shareToken ? `/shared/${conversation.shareToken}` : null,
+      sharedAt: conversation.sharedAt,
+      shareSettings: conversation.shareSettings,
+      viewCount: conversation.share?.viewCount || 0,
+      lastViewedAt: conversation.share?.lastViewedAt || null,
+    }));
+  } catch (error) {
+    logger.error(error, 'Error fetching share status');
+    res.status(500).json(errorResponse(ErrorCodes.INTERNAL_ERROR, 'Failed to fetch share status'));
+  }
+});
+
+// Public endpoint - View shared conversation (no auth required)
+app.get('/api/shared/:token', async (req, res) => {
+  try {
+    const { token } = req.params;
+
+    const conversation = await prisma.conversation.findUnique({
+      where: { shareToken: token },
+      include: {
+        character: {
+          select: { id: true, name: true, avatarUrl: true, tagline: true },
+        },
+        user: {
+          select: { id: true, username: true, displayName: true, avatarUrl: true },
+        },
+        messages: {
+          orderBy: { createdAt: 'asc' },
+          select: { id: true, role: true, content: true, createdAt: true },
+        },
+        share: true,
+      },
+    });
+
+    if (!conversation || !conversation.isPublic) {
+      return res.status(404).json(errorResponse(ErrorCodes.NOT_FOUND, 'Shared conversation not found'));
+    }
+
+    // Update view count
+    await prisma.conversationShare.update({
+      where: { conversationId: conversation.id },
+      data: {
+        viewCount: { increment: 1 },
+        lastViewedAt: new Date(),
+      },
+    });
+
+    // Check share settings for username visibility
+    const shareSettings = conversation.shareSettings as { allowComments?: boolean; showUsername?: boolean } || {};
+
+    res.json(successResponse({
+      id: conversation.id,
+      title: conversation.title,
+      character: conversation.character,
+      user: shareSettings.showUsername !== false ? {
+        username: conversation.user.username,
+        displayName: conversation.user.displayName,
+        avatarUrl: conversation.user.avatarUrl,
+      } : null,
+      messages: conversation.messages,
+      messageCount: conversation.messageCount,
+      sharedAt: conversation.sharedAt,
+      shareSettings,
+      viewCount: (conversation.share?.viewCount || 0) + 1,
+    }));
+  } catch (error) {
+    logger.error(error, 'Error fetching shared conversation');
+    res.status(500).json(errorResponse(ErrorCodes.INTERNAL_ERROR, 'Failed to fetch shared conversation'));
   }
 });
 

@@ -154,6 +154,16 @@ model User {
   organization         Organization? @relation(fields: [organizationId], references: [id])
   organizationMemberships OrganizationMember[]
 
+  // Forum relations
+  forumThreads         ForumThread[] @relation("ThreadAuthor")
+  forumLastReplies     ForumThread[] @relation("ThreadLastReply")
+  forumPosts           ForumPost[] @relation("ForumPostAuthor")
+  forumReactions       ForumReaction[] @relation("ForumReactionUser")
+
+  // Follow relations (Week 12 - Creator Following System)
+  followers            Follow[] @relation("UserFollowers")   // Users who follow this user
+  following            Follow[] @relation("UserFollowing")   // Users this user follows
+
   @@index([email])
   @@index([username])
   @@index([status])
@@ -282,12 +292,20 @@ model Character {
   createdAt            DateTime  @default(now())
   updatedAt            DateTime  @updatedAt
 
+  // Remix/Fork fields
+  parentCharacterId    String?   // Original character this was remixed from
+  isRemix              Boolean   @default(false)
+  remixCount           Int       @default(0)  // Number of times this character has been remixed
+  allowRemix           Boolean   @default(true)  // Creator can disable remixing
+
   // Relations
   creator              User      @relation(fields: [creatorId], references: [id], onDelete: Cascade)
   organization         Organization? @relation(fields: [organizationId], references: [id])
   conversations        Conversation[]
   favorites            Favorite[]
   ratings              CharacterRating[]
+  parentCharacter      Character?  @relation("CharacterRemixes", fields: [parentCharacterId], references: [id])
+  remixes              Character[] @relation("CharacterRemixes")
 
   @@index([creatorId])
   @@index([organizationId])
@@ -297,6 +315,8 @@ model Character {
   @@index([rating])
   @@index([chatCount])
   @@index([createdAt])
+  @@index([parentCharacterId])
+  @@index([isRemix])
 }
 
 enum VoiceStyle {
@@ -376,6 +396,12 @@ model Conversation {
   createdAt            DateTime  @default(now())
   updatedAt            DateTime  @updatedAt
 
+  // Sharing fields
+  isPublic             Boolean   @default(false)
+  shareToken           String?   @unique  // Random token for share URL
+  sharedAt             DateTime?
+  shareSettings        Json      @default("{}")  // { allowComments: bool, showUsername: bool }
+
   // Relations
   user                 User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   character            Character @relation(fields: [characterId], references: [id], onDelete: Cascade)
@@ -385,6 +411,7 @@ model Conversation {
   parentConversation   Conversation? @relation("ConversationBranches", fields: [parentConversationId], references: [id])
   branchedConversations Conversation[] @relation("ConversationBranches")
   branchPointMessage   Message?  @relation("BranchPoint", fields: [branchPointMessageId], references: [id])
+  share                ConversationShare?
 
   @@index([userId])
   @@index([characterId])
@@ -392,6 +419,7 @@ model Conversation {
   @@index([status])
   @@index([lastMessageAt])
   @@index([createdAt])
+  @@index([shareToken])
 }
 
 enum ChatMode {
@@ -405,6 +433,18 @@ enum ConversationStatus {
   ACTIVE
   ARCHIVED
   DELETED
+}
+
+model ConversationShare {
+  id             String    @id @default(cuid())
+  conversationId String    @unique
+  viewCount      Int       @default(0)
+  lastViewedAt   DateTime?
+  createdAt      DateTime  @default(now())
+
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId])
 }
 
 model Message {
@@ -605,4 +645,106 @@ model ApiKey {
   @@index([keyPrefix])
   @@index([isActive])
   @@index([expiresAt])
+}
+
+// ============================================================================
+// COMMUNITY FORUMS (Week 12 Feature)
+// ============================================================================
+
+model ForumCategory {
+  id                   String    @id @default(cuid())
+  name                 String    @unique
+  slug                 String    @unique
+  description          String?
+  icon                 String?   // Emoji or icon name (e.g., "💬" or "chat-bubble")
+  sortOrder            Int       @default(0)
+  isActive             Boolean   @default(true)
+  createdAt            DateTime  @default(now())
+
+  // Relations
+  threads              ForumThread[]
+
+  @@index([slug])
+  @@index([sortOrder])
+}
+
+model ForumThread {
+  id                   String    @id @default(cuid())
+  categoryId           String
+  authorId             String
+  title                String
+  content              String    @db.Text
+  isPinned             Boolean   @default(false)
+  isLocked             Boolean   @default(false)
+  viewCount            Int       @default(0)
+  replyCount           Int       @default(0)
+  lastReplyAt          DateTime?
+  lastReplyById        String?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  // Relations
+  category             ForumCategory @relation(fields: [categoryId], references: [id])
+  author               User @relation("ThreadAuthor", fields: [authorId], references: [id])
+  lastReplyBy          User? @relation("ThreadLastReply", fields: [lastReplyById], references: [id])
+  posts                ForumPost[]
+
+  @@index([categoryId])
+  @@index([authorId])
+  @@index([isPinned, createdAt])
+  @@index([lastReplyAt])
+}
+
+model ForumPost {
+  id                   String    @id @default(cuid())
+  threadId             String
+  authorId             String
+  content              String    @db.Text
+  isEdited             Boolean   @default(false)
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  // Relations
+  thread               ForumThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  author               User @relation("ForumPostAuthor", fields: [authorId], references: [id])
+  reactions            ForumReaction[]
+
+  @@index([threadId])
+  @@index([authorId])
+  @@index([createdAt])
+}
+
+model ForumReaction {
+  id                   String    @id @default(cuid())
+  postId               String
+  userId               String
+  type                 String    // 'like', 'helpful', 'funny'
+  createdAt            DateTime  @default(now())
+
+  // Relations
+  post                 ForumPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+  user                 User @relation("ForumReactionUser", fields: [userId], references: [id])
+
+  @@unique([postId, userId, type])
+  @@index([postId])
+  @@index([userId])
+}
+
+// ============================================================================
+// CREATOR FOLLOWING SYSTEM (Week 12 Feature)
+// ============================================================================
+
+model Follow {
+  id          String   @id @default(cuid())
+  followerId  String   // User who is following
+  followingId String   // User being followed (creator)
+  createdAt   DateTime @default(now())
+
+  // Relations
+  follower    User @relation("UserFollowers", fields: [followerId], references: [id], onDelete: Cascade)
+  following   User @relation("UserFollowing", fields: [followingId], references: [id], onDelete: Cascade)
+
+  @@unique([followerId, followingId])
+  @@index([followerId])
+  @@index([followingId])
 }

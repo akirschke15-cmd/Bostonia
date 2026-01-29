@@ -118,6 +118,19 @@ export const charactersApi = {
   favorite: (id: string) => api.post(`/api/characters/${id}/favorite`),
 
   categories: () => api.get('/api/characters/meta/categories'),
+
+  // Remix endpoints (Week 12)
+  remix: (id: string, data?: { name?: string; tagline?: string; description?: string }) =>
+    api.post(`/api/characters/${id}/remix`, data),
+
+  getRemixes: (id: string, params?: { page?: number; limit?: number }) =>
+    api.get(`/api/characters/${id}/remixes`, params),
+
+  getRemixChain: (id: string, params?: { maxDepth?: number }) =>
+    api.get(`/api/characters/${id}/remix-chain`, params),
+
+  updateRemixSettings: (id: string, data: { allowRemix: boolean }) =>
+    api.patch(`/api/characters/${id}/remix-settings`, data),
 };
 
 // Conversations API
@@ -143,6 +156,22 @@ export const conversationsApi = {
     api.get(`/api/conversations/${id}/export`, { format }),
 
   delete: (id: string) => api.delete(`/api/conversations/${id}`),
+
+  // Share endpoints (Week 12 - Shared Conversations)
+  getShareStatus: (id: string) =>
+    api.get(`/api/conversations/${id}/share`),
+
+  share: (id: string, settings?: { allowComments?: boolean; showUsername?: boolean }) =>
+    api.post(`/api/conversations/${id}/share`, { settings }),
+
+  unshare: (id: string) =>
+    api.delete(`/api/conversations/${id}/share`),
+
+  updateShareSettings: (id: string, settings: { allowComments?: boolean; showUsername?: boolean }) =>
+    api.patch(`/api/conversations/${id}/share`, { settings }),
+
+  getShared: (token: string) =>
+    api.get(`/api/shared/${token}`),
 };
 
 // Users API
@@ -160,6 +189,19 @@ export const usersApi = {
     api.get(`/api/users/${id}/favorites`, params),
 
   credits: (id: string) => api.get(`/api/users/${id}/credits`),
+
+  // Follow endpoints (Week 12 - Creator Following System)
+  follow: (id: string) => api.post(`/api/users/${id}/follow`),
+
+  unfollow: (id: string) => api.delete(`/api/users/${id}/follow`),
+
+  getFollowers: (id: string, params?: { page?: number; limit?: number }) =>
+    api.get(`/api/users/${id}/followers`, params),
+
+  getFollowing: (id: string, params?: { page?: number; limit?: number }) =>
+    api.get(`/api/users/${id}/following`, params),
+
+  getFollowStatus: (id: string) => api.get(`/api/users/${id}/follow-status`),
 };
 
 // Payments API
@@ -175,4 +217,21 @@ export const paymentsApi = {
     api.post('/api/payments/checkout/credits', data),
 
   cancelSubscription: () => api.post('/api/payments/subscription/cancel'),
+
+  resumeSubscription: () => api.post('/api/payments/subscription/resume'),
+
+  changeSubscription: (data: { tier: string }) =>
+    api.post('/api/payments/subscription/change', data),
+
+  invoices: (params?: { page?: number; limit?: number }) =>
+    api.get('/api/payments/invoices', params),
+
+  usage: () => api.get('/api/payments/usage'),
+
+  portalSession: (returnUrl: string) =>
+    api.post('/api/payments/portal', { returnUrl }),
+
+  creditBalance: () => api.get('/api/payments/credits'),
+
+  creditPackages: () => api.get('/api/payments/credit-packages'),
 };

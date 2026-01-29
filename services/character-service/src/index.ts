@@ -134,6 +134,16 @@ app.get('/api/characters/:id', async (req, res) => {
         creator: {
           select: { id: true, username: true, displayName: true, avatarUrl: true },
         },
+        parentCharacter: {
+          select: {
+            id: true,
+            name: true,
+            avatarUrl: true,
+            creator: {
+              select: { id: true, username: true, displayName: true },
+            },
+          },
+        },
       },
     });
 
@@ -316,6 +326,286 @@ app.get('/api/characters/meta/categories', async (_req, res) => {
   } catch (error) {
     logger.error(error, 'Error fetching categories');
     res.status(500).json(errorResponse(ErrorCodes.INTERNAL_ERROR, 'Failed to fetch categories'));
+  }
+});
+
+// ============================================================================
+// CHARACTER REMIX ENDPOINTS (Week 12 Community Feature)
+// ============================================================================
+
+// Create a remix (fork) of a character
+app.post('/api/characters/:id/remix', async (req, res) => {
+  try {
+    const userId = req.headers['x-user-id'] as string;
+    if (!userId) {
+      return res.status(401).json(errorResponse(ErrorCodes.UNAUTHORIZED, 'Not authenticated'));
+    }
+
+    const parentId = req.params.id;
+
+    // Fetch the parent character
+    const parentCharacter = await prisma.character.findUnique({
+      where: { id: parentId },
+      include: {
+        creator: {
+          select: { id: true, username: true, displayName: true },
+        },
+      },
+    });
+
+    if (!parentCharacter) {
+      return res.status(404).json(errorResponse(ErrorCodes.NOT_FOUND, 'Parent character not found'));
+    }
+
+    // Check if remixing is allowed
+    if (!parentCharacter.allowRemix) {
+      return res.status(403).json(errorResponse(ErrorCodes.FORBIDDEN, 'This character does not allow remixing'));
+    }
+
+    // Check if character is public or unlisted (can't remix private characters unless you're the owner)
+    if (parentCharacter.visibility === 'PRIVATE' && parentCharacter.creatorId !== userId) {
+      return res.status(403).json(errorResponse(ErrorCodes.FORBIDDEN, 'Cannot remix a private character'));
+    }
+
+    // Get optional customizations from request body
+    const { name, tagline, description } = req.body || {};
+
+    // Create the remix - copy most fields from parent
+    const remixedCharacter = await prisma.character.create({
+      data: {
+        creatorId: userId,
+        parentCharacterId: parentId,
+        isRemix: true,
+        name: name || `${parentCharacter.name} (Remix)`,
+        tagline: tagline || parentCharacter.tagline,
+        description: description || parentCharacter.description,
+        avatarUrl: parentCharacter.avatarUrl,
+        bannerUrl: parentCharacter.bannerUrl,
+        systemPrompt: parentCharacter.systemPrompt,
+        greeting: parentCharacter.greeting,
+        exampleDialogues: parentCharacter.exampleDialogues ?? undefined,
+        traits: parentCharacter.traits ?? undefined,
+        background: parentCharacter.background ?? undefined,
+        voice: parentCharacter.voice ?? undefined,
+        responseLength: parentCharacter.responseLength,
+        visibility: 'PRIVATE', // Start as private so creator can customize
+        category: parentCharacter.category,
+        tags: parentCharacter.tags,
+        isNsfw: parentCharacter.isNsfw,
+        status: 'DRAFT', // Start as draft
+        allowRemix: true, // Allow further remixing by default
+      },
+      include: {
+        creator: {
+          select: { id: true, username: true, displayName: true, avatarUrl: true },
+        },
+        parentCharacter: {
+          select: {
+            id: true,
+            name: true,
+            avatarUrl: true,
+            creator: {
+              select: { id: true, username: true, displayName: true },
+            },
+          },
+        },
+      },
+    });
+
+    // Increment the parent's remix count
+    await prisma.character.update({
+      where: { id: parentId },
+      data: { remixCount: { increment: 1 } },
+    });
+
+    logger.info({ parentId, remixId: remixedCharacter.id, userId }, 'Character remixed');
+    res.status(201).json(successResponse(remixedCharacter));
+  } catch (error) {
+    logger.error(error, 'Error creating remix');
+    res.status(500).json(errorResponse(ErrorCodes.INTERNAL_ERROR, 'Failed to create remix'));
+  }
+});
+
+// Get all remixes of a character (paginated)
+app.get('/api/characters/:id/remixes', async (req, res) => {
+  try {
+    const parentId = req.params.id;
+    const page = parseInt(req.query.page as string) || 1;
+    const limit = Math.min(parseInt(req.query.limit as string) || 20, 100);
+
+    // Check if parent character exists
+    const parentExists = await prisma.character.findUnique({
+      where: { id: parentId },
+      select: { id: true, remixCount: true },
+    });
+
+    if (!parentExists) {
+      return res.status(404).json(errorResponse(ErrorCodes.NOT_FOUND, 'Character not found'));
+    }
+
+    const [remixes, total] = await Promise.all([
+      prisma.character.findMany({
+        where: {
+          parentCharacterId: parentId,
+          status: 'PUBLISHED', // Only show published remixes
+          visibility: { in: ['PUBLIC', 'UNLISTED'] },
+        },
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * limit,
+        take: limit,
+        select: {
+          id: true,
+          name: true,
+          tagline: true,
+          avatarUrl: true,
+          category: true,
+          rating: true,
+          chatCount: true,
+          remixCount: true,
+          createdAt: true,
+          creator: {
+            select: { id: true, username: true, displayName: true },
+          },
+        },
+      }),
+      prisma.character.count({
+        where: {
+          parentCharacterId: parentId,
+          status: 'PUBLISHED',
+          visibility: { in: ['PUBLIC', 'UNLISTED'] },
+        },
+      }),
+    ]);
+
+    res.json(successResponse(remixes, calculatePagination(page, limit, total)));
+  } catch (error) {
+    logger.error(error, 'Error fetching remixes');
+    res.status(500).json(errorResponse(ErrorCodes.INTERNAL_ERROR, 'Failed to fetch remixes'));
+  }
+});
+
+// Get remix ancestry chain (parent -> grandparent -> etc.)
+app.get('/api/characters/:id/remix-chain', async (req, res) => {
+  try {
+    const characterId = req.params.id;
+    const maxDepth = Math.min(parseInt(req.query.maxDepth as string) || 10, 20);
+
+    // Start with the requested character
+    const character = await prisma.character.findUnique({
+      where: { id: characterId },
+      select: {
+        id: true,
+        name: true,
+        avatarUrl: true,
+        isRemix: true,
+        parentCharacterId: true,
+        creator: {
+          select: { id: true, username: true, displayName: true },
+        },
+      },
+    });
+
+    if (!character) {
+      return res.status(404).json(errorResponse(ErrorCodes.NOT_FOUND, 'Character not found'));
+    }
+
+    // Build the ancestry chain
+    const chain: Array<{
+      id: string;
+      name: string;
+      avatarUrl: string | null;
+      isRemix: boolean;
+      creator: { id: string; username: string; displayName: string | null };
+    }> = [];
+
+    let currentParentId = character.parentCharacterId;
+    let depth = 0;
+
+    while (currentParentId && depth < maxDepth) {
+      const parent = await prisma.character.findUnique({
+        where: { id: currentParentId },
+        select: {
+          id: true,
+          name: true,
+          avatarUrl: true,
+          isRemix: true,
+          parentCharacterId: true,
+          creator: {
+            select: { id: true, username: true, displayName: true },
+          },
+        },
+      });
+
+      if (!parent) break;
+
+      chain.push({
+        id: parent.id,
+        name: parent.name,
+        avatarUrl: parent.avatarUrl,
+        isRemix: parent.isRemix,
+        creator: parent.creator,
+      });
+
+      currentParentId = parent.parentCharacterId;
+      depth++;
+    }
+
+    res.json(successResponse({
+      character: {
+        id: character.id,
+        name: character.name,
+        avatarUrl: character.avatarUrl,
+        isRemix: character.isRemix,
+        creator: character.creator,
+      },
+      ancestors: chain,
+      totalDepth: chain.length,
+    }));
+  } catch (error) {
+    logger.error(error, 'Error fetching remix chain');
+    res.status(500).json(errorResponse(ErrorCodes.INTERNAL_ERROR, 'Failed to fetch remix chain'));
+  }
+});
+
+// Update remix settings (allowRemix toggle)
+app.patch('/api/characters/:id/remix-settings', async (req, res) => {
+  try {
+    const userId = req.headers['x-user-id'] as string;
+    if (!userId) {
+      return res.status(401).json(errorResponse(ErrorCodes.UNAUTHORIZED, 'Not authenticated'));
+    }
+
+    const characterId = req.params.id;
+    const { allowRemix } = req.body;
+
+    if (typeof allowRemix !== 'boolean') {
+      return res.status(400).json(errorResponse(ErrorCodes.VALIDATION_ERROR, 'allowRemix must be a boolean'));
+    }
+
+    // Check ownership
+    const character = await prisma.character.findUnique({
+      where: { id: characterId },
+      select: { creatorId: true },
+    });
+
+    if (!character) {
+      return res.status(404).json(errorResponse(ErrorCodes.NOT_FOUND, 'Character not found'));
+    }
+
+    if (character.creatorId !== userId) {
+      return res.status(403).json(errorResponse(ErrorCodes.FORBIDDEN, 'Not authorized to modify this character'));
+    }
+
+    const updated = await prisma.character.update({
+      where: { id: characterId },
+      data: { allowRemix },
+      select: { id: true, allowRemix: true },
+    });
+
+    res.json(successResponse(updated));
+  } catch (error) {
+    logger.error(error, 'Error updating remix settings');
+    res.status(500).json(errorResponse(ErrorCodes.INTERNAL_ERROR, 'Failed to update remix settings'));
   }
 });
 
