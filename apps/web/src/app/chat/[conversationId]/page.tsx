@@ -260,7 +260,7 @@ export default function ChatPage() {
     <div className="h-screen flex flex-col bg-space-950">
       {/* Header */}
       <header className="flex-shrink-0 bg-space-950/90 backdrop-blur-md border-b border-space-800/50">
-        <div className="flex items-center justify-between px-4 py-3">
+        <div className="max-w-[750px] mx-auto flex items-center justify-between px-4 py-3">
           <div className="flex items-center gap-4">
             <Link
               href="/characters"
@@ -331,7 +331,8 @@ export default function ChatPage() {
       </header>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto px-4 py-6 space-y-6 starfield">
+      <div className="flex-1 overflow-y-auto px-4 py-4 starfield">
+        <div className="max-w-[650px] mx-auto space-y-2">
         {messages.length === 0 && !streamingContent && (
           <div className="text-center text-space-400 py-12">
             <Sparkles className="h-12 w-12 mx-auto mb-4 text-primary-500/50 animate-twinkle" />
@@ -343,20 +344,20 @@ export default function ChatPage() {
           <div
             key={message.id}
             className={cn(
-              'flex gap-3 max-w-3xl',
-              message.role === 'USER' ? 'ml-auto flex-row-reverse' : ''
+              'flex gap-2',
+              message.role === 'USER' ? 'justify-end' : 'justify-start'
             )}
           >
             {message.role !== 'USER' && (
-              <div className="flex-shrink-0">
+              <div className="flex-shrink-0 self-end mb-1">
                 {character?.avatarUrl ? (
                   <img
                     src={character.avatarUrl}
                     alt={character.name}
-                    className="w-8 h-8 rounded-full object-cover"
+                    className="w-7 h-7 rounded-full object-cover"
                   />
                 ) : (
-                  <div className="w-8 h-8 rounded-full bg-gradient-to-br from-primary to-purple-500 flex items-center justify-center text-white text-sm font-semibold">
+                  <div className="w-7 h-7 rounded-full bg-gradient-to-br from-primary to-purple-500 flex items-center justify-center text-white text-xs font-semibold">
                     {getInitials(character?.name || 'AI')}
                   </div>
                 )}
@@ -365,67 +366,57 @@ export default function ChatPage() {
 
             <div
               className={cn(
-                'rounded-2xl px-4 py-3 max-w-[80%]',
+                'rounded-2xl px-3 py-2 max-w-[75%]',
                 message.role === 'USER'
-                  ? 'bg-gradient-to-r from-primary-500 to-accent-500 text-white shadow-lg shadow-primary-500/20'
-                  : 'bg-space-800/80 border border-space-700/50 text-space-100'
+                  ? 'bg-gradient-to-r from-primary-500 to-accent-500 text-white rounded-br-md'
+                  : 'bg-space-800/80 border border-space-700/50 text-space-100 rounded-bl-md'
               )}
             >
-              <p className="whitespace-pre-wrap">{message.content}</p>
-              <p
-                className={cn(
-                  'text-xs mt-1',
-                  message.role === 'USER'
-                    ? 'text-white/70'
-                    : 'text-space-400'
-                )}
-              >
-                {formatRelativeTime(message.createdAt)}
-              </p>
+              <p className="whitespace-pre-wrap text-[15px] leading-relaxed">{message.content}</p>
             </div>
           </div>
         ))}
 
         {/* Streaming response */}
         {streamingContent && (
-          <div className="flex gap-3 max-w-3xl">
-            <div className="flex-shrink-0">
+          <div className="flex gap-2 justify-start">
+            <div className="flex-shrink-0 self-end mb-1">
               {character?.avatarUrl ? (
                 <img
                   src={character.avatarUrl}
                   alt={character.name}
-                  className="w-8 h-8 rounded-full object-cover"
+                  className="w-7 h-7 rounded-full object-cover"
                 />
               ) : (
-                <div className="w-8 h-8 rounded-full bg-gradient-to-br from-primary to-purple-500 flex items-center justify-center text-white text-sm font-semibold">
+                <div className="w-7 h-7 rounded-full bg-gradient-to-br from-primary to-purple-500 flex items-center justify-center text-white text-xs font-semibold">
                   {getInitials(character?.name || 'AI')}
                 </div>
               )}
             </div>
-            <div className="bg-space-800/80 border border-space-700/50 rounded-2xl px-4 py-3 max-w-[80%] text-space-100">
-              <p className="whitespace-pre-wrap">{streamingContent}</p>
-              <span className="inline-block w-2 h-4 bg-primary-400 animate-pulse ml-1"></span>
+            <div className="bg-space-800/80 border border-space-700/50 rounded-2xl rounded-bl-md px-3 py-2 max-w-[75%] text-space-100">
+              <p className="whitespace-pre-wrap text-[15px] leading-relaxed">{streamingContent}</p>
+              <span className="inline-block w-1.5 h-4 bg-primary-400 animate-pulse ml-0.5"></span>
             </div>
           </div>
         )}
 
         {/* Typing indicator */}
         {isTyping && !streamingContent && (
-          <div className="flex gap-3 max-w-3xl">
-            <div className="flex-shrink-0">
+          <div className="flex gap-2 justify-start">
+            <div className="flex-shrink-0 self-end mb-1">
               {character?.avatarUrl ? (
                 <img
                   src={character.avatarUrl}
                   alt={character.name}
-                  className="w-8 h-8 rounded-full object-cover"
+                  className="w-7 h-7 rounded-full object-cover"
                 />
               ) : (
-                <div className="w-8 h-8 rounded-full bg-gradient-to-br from-primary to-purple-500 flex items-center justify-center text-white text-sm font-semibold">
+                <div className="w-7 h-7 rounded-full bg-gradient-to-br from-primary to-purple-500 flex items-center justify-center text-white text-xs font-semibold">
                   {getInitials(character?.name || 'AI')}
                 </div>
               )}
             </div>
-            <div className="bg-space-800/80 border border-space-700/50 rounded-2xl px-4 py-3">
+            <div className="bg-space-800/80 border border-space-700/50 rounded-2xl rounded-bl-md px-3 py-2">
               <div className="flex gap-1">
                 <span className="w-2 h-2 bg-primary-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></span>
                 <span className="w-2 h-2 bg-accent-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></span>
@@ -436,11 +427,12 @@ export default function ChatPage() {
         )}
 
         <div ref={messagesEndRef} />
+        </div>
       </div>
 
       {/* Input */}
       <div className="flex-shrink-0 border-t border-space-800/50 bg-space-950/90 backdrop-blur-md p-4">
-        <div className="max-w-3xl mx-auto">
+        <div className="max-w-[650px] mx-auto">
           <div className="flex items-end gap-3">
             <div className="flex-1 relative">
               <textarea

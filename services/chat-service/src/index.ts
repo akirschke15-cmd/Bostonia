@@ -423,23 +423,40 @@ io.on('connection', (socket) => {
         throw new Error('No response body');
       }
 
-      // Handle streaming response
+      // Handle streaming response - parse SSE format
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let fullContent = '';
+      let buffer = '';
 
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
 
-        const chunk = decoder.decode(value, { stream: true });
-        fullContent += chunk;
+        buffer += decoder.decode(value, { stream: true });
 
-        // Emit chunk to clients
-        io.to(`conversation:${conversationId}`).emit('chat:stream_chunk', {
-          conversationId,
-          content: chunk,
-        });
+        // Parse SSE events from buffer
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || ''; // Keep incomplete line in buffer
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const jsonStr = line.slice(6); // Remove 'data: ' prefix
+              const data = JSON.parse(jsonStr);
+              if (data.content) {
+                fullContent += data.content;
+                // Emit parsed content to clients
+                io.to(`conversation:${conversationId}`).emit('chat:stream_chunk', {
+                  conversationId,
+                  content: data.content,
+                });
+              }
+            } catch {
+              // Ignore parse errors for non-JSON lines
+            }
+          }
+        }
       }
 
       // Save complete message
