@@ -1,0 +1,855 @@
+openapi: 3.0.3
+info:
+  title: Bostonia Chat Service API
+  description: |
+    Chat Service API for Bostonia AI Character Chat Platform.
+
+    This service handles all chat-related functionality including:
+    - Conversation management (CRUD operations)
+    - Message history and retrieval
+    - Real-time messaging via WebSocket
+    - AI-powered character responses with streaming support
+    - Conversation export
+
+    ## Real-time Communication
+
+    The Chat Service supports real-time messaging via Socket.IO WebSocket connections.
+    For the best user experience, use WebSocket for sending messages (enables streaming responses).
+    REST endpoints are available as a fallback.
+
+    ## Message Flow
+
+    1. **Create Conversation**: Start a new conversation with a character
+    2. **Send Message**: Send via WebSocket for streaming, or REST for simple request/response
+    3. **Receive Response**: AI generates character response (streamed via WebSocket)
+    4. **History**: Retrieve message history via REST endpoints
+
+  version: 1.0.0
+  contact:
+    name: Bostonia API Team
+    email: api@bostonia.ai
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: http://localhost:3004
+    description: Local development server
+  - url: https://api.bostonia.ai/chat
+    description: Production server
+
+tags:
+  - name: Conversations
+    description: Conversation management endpoints
+  - name: Messages
+    description: Message endpoints
+  - name: WebSocket
+    description: Real-time WebSocket events
+  - name: Health
+    description: Service health check endpoints
+
+paths:
+  # ============================================================================
+  # HEALTH CHECK
+  # ============================================================================
+  /health:
+    get:
+      tags:
+        - Health
+      summary: Health check
+      description: Returns the health status of the Chat Service
+      operationId: healthCheck
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+              example:
+                success: true
+                data:
+                  status: healthy
+                  service: chat-service
+
+  # ============================================================================
+  # CONVERSATIONS
+  # ============================================================================
+  /api/conversations:
+    get:
+      tags:
+        - Conversations
+      summary: List conversations
+      description: Returns a paginated list of the user's conversations
+      operationId: listConversations
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          description: Page number (1-indexed)
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: limit
+          in: query
+          description: Items per page
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: characterId
+          in: query
+          description: Filter by character ID
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of conversations
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConversationListResponse'
+              example:
+                success: true
+                data:
+                  - id: conv_abc123
+                    userId: usr_123
+                    characterId: char_456
+                    title: Chat with Luna
+                    mode: CHAT
+                    status: ACTIVE
+                    messageCount: 24
+                    lastMessageAt: '2026-01-29T10:30:00Z'
+                    createdAt: '2026-01-28T15:00:00Z'
+                    character:
+                      id: char_456
+                      name: Luna
+                      avatarUrl: https://example.com/luna.jpg
+                    lastMessage:
+                      id: msg_789
+                      content: Of course! Let me help you with that...
+                      role: ASSISTANT
+                      createdAt: '2026-01-29T10:30:00Z'
+                meta:
+                  page: 1
+                  limit: 20
+                  total: 45
+                  totalPages: 3
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+    post:
+      tags:
+        - Conversations
+      summary: Create conversation
+      description: |
+        Creates a new conversation with a character.
+        Automatically creates an initial greeting message from the character.
+        Increments the character's chat count.
+      operationId: createConversation
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateConversationRequest'
+            example:
+              characterId: char_456
+              title: My chat with Luna
+              mode: chat
+      responses:
+        '201':
+          description: Conversation created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConversationResponse'
+              example:
+                success: true
+                data:
+                  id: conv_abc123
+                  userId: usr_123
+                  characterId: char_456
+                  title: My chat with Luna
+                  mode: CHAT
+                  status: ACTIVE
+                  messageCount: 0
+                  createdAt: '2026-01-29T12:00:00Z'
+                  character:
+                    id: char_456
+                    name: Luna
+                    avatarUrl: https://example.com/luna.jpg
+                    greeting: Hello! I'm Luna. How can I help you today?
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Character not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                success: false
+                error:
+                  code: NOT_FOUND
+                  message: Character not found
+
+  /api/conversations/{id}:
+    get:
+      tags:
+        - Conversations
+      summary: Get conversation by ID
+      description: Returns a specific conversation with character details
+      operationId: getConversation
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Conversation ID
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Conversation details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConversationResponse'
+        '404':
+          description: Conversation not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    patch:
+      tags:
+        - Conversations
+      summary: Update conversation
+      description: Updates conversation title or status
+      operationId: updateConversation
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateConversationRequest'
+            example:
+              title: Renamed conversation
+              status: archived
+      responses:
+        '200':
+          description: Conversation updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConversationResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  # ============================================================================
+  # MESSAGES
+  # ============================================================================
+  /api/conversations/{id}/messages:
+    get:
+      tags:
+        - Messages
+      summary: Get conversation messages
+      description: Returns paginated message history for a conversation, ordered by creation time (ascending)
+      operationId: getMessages
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Conversation ID
+          schema:
+            type: string
+        - name: page
+          in: query
+          description: Page number
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          description: Messages per page
+          schema:
+            type: integer
+            default: 50
+            maximum: 100
+      responses:
+        '200':
+          description: Message list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageListResponse'
+              example:
+                success: true
+                data:
+                  - id: msg_001
+                    conversationId: conv_abc123
+                    role: ASSISTANT
+                    content: Hello! I'm Luna. How can I help you today?
+                    tokenCount: 12
+                    createdAt: '2026-01-29T12:00:00Z'
+                  - id: msg_002
+                    conversationId: conv_abc123
+                    role: USER
+                    content: Tell me about yourself
+                    tokenCount: 5
+                    createdAt: '2026-01-29T12:00:30Z'
+                  - id: msg_003
+                    conversationId: conv_abc123
+                    role: ASSISTANT
+                    content: I'd be happy to share! I'm an AI character...
+                    tokenCount: 45
+                    createdAt: '2026-01-29T12:00:35Z'
+                meta:
+                  page: 1
+                  limit: 50
+                  total: 24
+                  totalPages: 1
+
+    post:
+      tags:
+        - Messages
+      summary: Send message (REST)
+      description: |
+        Sends a message and receives an AI response.
+
+        **Note:** For streaming responses and better UX, use WebSocket instead.
+        This REST endpoint waits for the complete AI response before returning.
+      operationId: sendMessage
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Conversation ID
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SendMessageRequest'
+            example:
+              content: Tell me about yourself
+      responses:
+        '200':
+          description: Message sent and response received
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessagePairResponse'
+              example:
+                success: true
+                data:
+                  userMessage:
+                    id: msg_002
+                    conversationId: conv_abc123
+                    role: USER
+                    content: Tell me about yourself
+                    tokenCount: 5
+                    createdAt: '2026-01-29T12:00:30Z'
+                  assistantMessage:
+                    id: msg_003
+                    conversationId: conv_abc123
+                    role: ASSISTANT
+                    content: I'd be happy to share! I'm an AI character created to help and engage in meaningful conversations...
+                    tokenCount: 45
+                    createdAt: '2026-01-29T12:00:35Z'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          description: AI service unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                success: false
+                error:
+                  code: INTERNAL_ERROR
+                  message: AI service unavailable
+
+  # ============================================================================
+  # EXPORT
+  # ============================================================================
+  /api/conversations/{id}/export:
+    get:
+      tags:
+        - Conversations
+      summary: Export conversation
+      description: Exports a conversation in JSON or plain text format
+      operationId: exportConversation
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: format
+          in: query
+          description: Export format
+          schema:
+            type: string
+            enum: [json, txt]
+            default: json
+      responses:
+        '200':
+          description: Exported conversation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConversationExportResponse'
+            text/plain:
+              schema:
+                type: string
+              example: |
+                [ASSISTANT]: Hello! I'm Luna. How can I help you today?
+
+                [USER]: Tell me about yourself
+
+                [ASSISTANT]: I'd be happy to share! I'm an AI character...
+        '404':
+          description: Conversation not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+# ============================================================================
+# WEBSOCKET EVENTS
+# ============================================================================
+x-websocket-events:
+  description: |
+    ## WebSocket Connection
+
+    Connect to the Chat Service WebSocket endpoint for real-time messaging:
+
+    ```javascript
+    import { io } from 'socket.io-client';
+
+    const socket = io('http://localhost:3004', {
+      withCredentials: true,
+    });
+    ```
+
+    ## Events
+
+  events:
+    join:conversation:
+      direction: client-to-server
+      description: Join a conversation room to receive real-time updates
+      payload:
+        type: string
+        description: Conversation ID
+      example:
+        event: join:conversation
+        data: conv_abc123
+
+    leave:conversation:
+      direction: client-to-server
+      description: Leave a conversation room
+      payload:
+        type: string
+        description: Conversation ID
+      example:
+        event: leave:conversation
+        data: conv_abc123
+
+    chat:message:
+      direction: bidirectional
+      description: |
+        **Client to Server:** Send a new message
+        **Server to Client:** Broadcast of user messages to room
+      payload:
+        type: object
+        properties:
+          conversationId:
+            type: string
+            description: Conversation ID
+          content:
+            type: string
+            description: Message content
+          userId:
+            type: string
+            description: User ID (required for sending)
+          type:
+            type: string
+            enum: [user]
+            description: Message type (in broadcasts)
+          message:
+            type: object
+            description: Full message object (in broadcasts)
+      example_send:
+        event: chat:message
+        data:
+          conversationId: conv_abc123
+          content: Hello, Luna!
+          userId: usr_123
+      example_receive:
+        event: chat:message
+        data:
+          type: user
+          message:
+            id: msg_002
+            conversationId: conv_abc123
+            role: USER
+            content: Hello, Luna!
+            tokenCount: 3
+            createdAt: '2026-01-29T12:00:30Z'
+
+    chat:typing:
+      direction: server-to-client
+      description: Indicates when the AI is generating a response
+      payload:
+        type: object
+        properties:
+          isTyping:
+            type: boolean
+      example:
+        event: chat:typing
+        data:
+          isTyping: true
+
+    chat:stream_chunk:
+      direction: server-to-client
+      description: |
+        Streaming AI response chunk.
+        Emitted multiple times during response generation.
+        Accumulate chunks to build the full response.
+      payload:
+        type: object
+        properties:
+          conversationId:
+            type: string
+          content:
+            type: string
+            description: Chunk of generated text
+      example:
+        event: chat:stream_chunk
+        data:
+          conversationId: conv_abc123
+          content: I'd be happy
+
+    chat:stream_end:
+      direction: server-to-client
+      description: |
+        Signals completion of streaming response.
+        Contains the full saved message object.
+      payload:
+        type: object
+        properties:
+          message:
+            $ref: '#/components/schemas/Message'
+      example:
+        event: chat:stream_end
+        data:
+          message:
+            id: msg_003
+            conversationId: conv_abc123
+            role: ASSISTANT
+            content: I'd be happy to share! I'm Luna, an AI character...
+            tokenCount: 45
+            createdAt: '2026-01-29T12:00:35Z'
+
+    chat:error:
+      direction: server-to-client
+      description: Error during message processing
+      payload:
+        type: object
+        properties:
+          message:
+            type: string
+      example:
+        event: chat:error
+        data:
+          message: Failed to process message
+
+# ============================================================================
+# COMPONENTS
+# ============================================================================
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT access token from Auth Service
+
+  responses:
+    Unauthorized:
+      description: Authentication required
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            success: false
+            error:
+              code: UNAUTHORIZED
+              message: Not authenticated
+
+    ValidationError:
+      description: Invalid input data
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+  schemas:
+    # Base Response
+    ErrorResponse:
+      type: object
+      required:
+        - success
+        - error
+      properties:
+        success:
+          type: boolean
+          enum: [false]
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+              enum:
+                - UNAUTHORIZED
+                - NOT_FOUND
+                - INVALID_INPUT
+                - INTERNAL_ERROR
+            message:
+              type: string
+
+    HealthResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          properties:
+            status:
+              type: string
+            service:
+              type: string
+
+    PaginationMeta:
+      type: object
+      properties:
+        page:
+          type: integer
+        limit:
+          type: integer
+        total:
+          type: integer
+        totalPages:
+          type: integer
+
+    # Conversation Schemas
+    Conversation:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Unique conversation identifier
+        userId:
+          type: string
+          description: Owner user ID
+        characterId:
+          type: string
+          description: Character ID
+        title:
+          type: string
+          description: Conversation title
+        mode:
+          type: string
+          enum: [CHAT, ROLEPLAY, ADVENTURE]
+          description: Conversation mode
+        status:
+          type: string
+          enum: [ACTIVE, ARCHIVED, DELETED]
+          description: Conversation status
+        messageCount:
+          type: integer
+          description: Total number of messages
+        lastMessageAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        character:
+          type: object
+          description: Associated character (when included)
+          properties:
+            id:
+              type: string
+            name:
+              type: string
+            avatarUrl:
+              type: string
+            greeting:
+              type: string
+
+    ConversationWithLastMessage:
+      allOf:
+        - $ref: '#/components/schemas/Conversation'
+        - type: object
+          properties:
+            lastMessage:
+              $ref: '#/components/schemas/Message'
+              nullable: true
+
+    CreateConversationRequest:
+      type: object
+      required:
+        - characterId
+      properties:
+        characterId:
+          type: string
+          description: ID of the character to chat with
+        title:
+          type: string
+          description: Optional custom title (defaults to "Chat with {character name}")
+        mode:
+          type: string
+          enum: [chat, roleplay, adventure]
+          default: chat
+          description: Conversation mode
+
+    UpdateConversationRequest:
+      type: object
+      properties:
+        title:
+          type: string
+          description: New conversation title
+        status:
+          type: string
+          enum: [active, archived, deleted]
+          description: New conversation status
+
+    ConversationResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          $ref: '#/components/schemas/Conversation'
+
+    ConversationListResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/ConversationWithLastMessage'
+        meta:
+          $ref: '#/components/schemas/PaginationMeta'
+
+    ConversationExportResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          allOf:
+            - $ref: '#/components/schemas/Conversation'
+            - type: object
+              properties:
+                messages:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/Message'
+
+    # Message Schemas
+    Message:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Unique message identifier
+        conversationId:
+          type: string
+          description: Parent conversation ID
+        role:
+          type: string
+          enum: [USER, ASSISTANT, SYSTEM]
+          description: Message sender role
+        content:
+          type: string
+          description: Message content
+        tokenCount:
+          type: integer
+          description: Estimated token count
+        metadata:
+          type: object
+          additionalProperties: true
+          description: Additional message metadata (e.g., AI model info)
+        createdAt:
+          type: string
+          format: date-time
+
+    SendMessageRequest:
+      type: object
+      required:
+        - content
+      properties:
+        content:
+          type: string
+          minLength: 1
+          maxLength: 4000
+          description: Message content to send
+
+    MessageListResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Message'
+        meta:
+          $ref: '#/components/schemas/PaginationMeta'
+
+    MessagePairResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          properties:
+            userMessage:
+              $ref: '#/components/schemas/Message'
+            assistantMessage:
+              $ref: '#/components/schemas/Message'

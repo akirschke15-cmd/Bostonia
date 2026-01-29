@@ -1,0 +1,2132 @@
+openapi: 3.0.3
+info:
+  title: Bostonia Payment Service API
+  description: |
+    Payment Service API for Bostonia AI Character Chat Platform.
+
+    This service handles all payment-related functionality including:
+    - Subscription management (Free, Plus, Pro tiers)
+    - Credit system (purchase, usage, balance tracking)
+    - Billing and invoice management
+    - Stripe webhook processing
+    - Creator payouts and earnings
+
+    ## Authentication
+    All endpoints except webhooks require JWT authentication via Bearer token.
+
+    ## Subscription Tiers
+    - **Free**: 50 messages/month, basic features
+    - **Plus**: $9.99/month, 2000 messages/month, priority support
+    - **Pro**: $19.99/month, unlimited messages, premium features
+
+    ## Credit System
+    - 100 credits = $1.00
+    - Credits can be used for premium characters, extra messages, etc.
+    - Creators earn 70% revenue share on premium content
+
+  version: 1.0.0
+  contact:
+    name: Bostonia API Team
+    email: api@bostonia.ai
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: http://localhost:3005
+    description: Local development server
+  - url: https://api.bostonia.ai/payments
+    description: Production server
+
+tags:
+  - name: Subscriptions
+    description: Subscription management endpoints
+  - name: Credits
+    description: Credit balance and transaction endpoints
+  - name: Billing
+    description: Billing history and payment method management
+  - name: Webhooks
+    description: Stripe webhook handlers
+  - name: Creator Payouts
+    description: Creator earnings and payout management
+  - name: Health
+    description: Service health check endpoints
+
+paths:
+  # ============================================================================
+  # HEALTH CHECK
+  # ============================================================================
+  /health:
+    get:
+      tags:
+        - Health
+      summary: Health check
+      description: Returns the health status of the Payment Service
+      operationId: healthCheck
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+              example:
+                success: true
+                data:
+                  status: healthy
+                  service: payment-service
+                  version: 1.0.0
+                  timestamp: '2026-01-29T12:00:00Z'
+
+  # ============================================================================
+  # SUBSCRIPTIONS
+  # ============================================================================
+  /subscriptions/current:
+    get:
+      tags:
+        - Subscriptions
+      summary: Get current subscription
+      description: Returns the authenticated user's current subscription details
+      operationId: getCurrentSubscription
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Current subscription details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubscriptionResponse'
+              example:
+                success: true
+                data:
+                  id: sub_abc123
+                  userId: usr_123
+                  tier: plus
+                  status: active
+                  stripeCustomerId: cus_123
+                  stripeSubscriptionId: sub_stripe_123
+                  currentPeriodStart: '2026-01-01T00:00:00Z'
+                  currentPeriodEnd: '2026-02-01T00:00:00Z'
+                  cancelAtPeriodEnd: false
+                  features:
+                    messagesPerMonth: 2000
+                    messagesUsed: 450
+                    prioritySupport: true
+                    customPersonas: true
+                    advancedMemory: true
+                  createdAt: '2025-12-01T00:00:00Z'
+                  updatedAt: '2026-01-01T00:00:00Z'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: No active subscription found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                success: false
+                error:
+                  code: NOT_FOUND
+                  message: No active subscription found
+
+  /subscriptions/plans:
+    get:
+      tags:
+        - Subscriptions
+      summary: List available subscription plans
+      description: Returns all available subscription plans with pricing and features
+      operationId: listSubscriptionPlans
+      responses:
+        '200':
+          description: List of available subscription plans
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlansListResponse'
+              example:
+                success: true
+                data:
+                  - id: plan_free
+                    name: Free
+                    tier: free
+                    price: 0
+                    currency: usd
+                    interval: month
+                    features:
+                      messagesPerMonth: 50
+                      prioritySupport: false
+                      customPersonas: false
+                      advancedMemory: false
+                      voiceMessages: false
+                    popular: false
+                  - id: plan_plus
+                    name: Plus
+                    tier: plus
+                    price: 999
+                    currency: usd
+                    interval: month
+                    stripePriceId: price_plus_monthly
+                    features:
+                      messagesPerMonth: 2000
+                      prioritySupport: true
+                      customPersonas: true
+                      advancedMemory: true
+                      voiceMessages: false
+                    popular: true
+                  - id: plan_pro
+                    name: Pro
+                    tier: pro
+                    price: 1999
+                    currency: usd
+                    interval: month
+                    stripePriceId: price_pro_monthly
+                    features:
+                      messagesPerMonth: -1
+                      prioritySupport: true
+                      customPersonas: true
+                      advancedMemory: true
+                      voiceMessages: true
+                    popular: false
+
+  /subscriptions/checkout:
+    post:
+      tags:
+        - Subscriptions
+      summary: Create subscription checkout session
+      description: |
+        Creates a Stripe Checkout session for subscribing to a plan.
+        Returns a checkout URL that the client should redirect to.
+      operationId: createSubscriptionCheckout
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateSubscriptionCheckoutRequest'
+            example:
+              planId: plan_plus
+              successUrl: https://bostonia.ai/subscription/success
+              cancelUrl: https://bostonia.ai/pricing
+      responses:
+        '200':
+          description: Checkout session created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CheckoutSessionResponse'
+              example:
+                success: true
+                data:
+                  sessionId: cs_test_123
+                  checkoutUrl: https://checkout.stripe.com/c/pay/cs_test_123
+                  expiresAt: '2026-01-29T13:00:00Z'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          description: User already has an active subscription
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                success: false
+                error:
+                  code: CONFLICT
+                  message: You already have an active subscription. Please update or cancel your current subscription first.
+
+  /subscriptions/update:
+    post:
+      tags:
+        - Subscriptions
+      summary: Update subscription (change plan)
+      description: |
+        Updates the user's subscription to a different plan.
+        Changes are prorated and applied immediately.
+      operationId: updateSubscription
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateSubscriptionRequest'
+            example:
+              newPlanId: plan_pro
+              prorationBehavior: create_prorations
+      responses:
+        '200':
+          description: Subscription updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubscriptionResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: No active subscription to update
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                success: false
+                error:
+                  code: NOT_FOUND
+                  message: No active subscription found to update
+
+  /subscriptions/cancel:
+    post:
+      tags:
+        - Subscriptions
+      summary: Cancel subscription
+      description: |
+        Cancels the user's subscription at the end of the current billing period.
+        The subscription remains active until the period ends.
+      operationId: cancelSubscription
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CancelSubscriptionRequest'
+            example:
+              reason: too_expensive
+              feedback: Great service but I need to cut costs
+              cancelImmediately: false
+      responses:
+        '200':
+          description: Subscription cancellation scheduled
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubscriptionResponse'
+              example:
+                success: true
+                data:
+                  id: sub_abc123
+                  userId: usr_123
+                  tier: plus
+                  status: active
+                  cancelAtPeriodEnd: true
+                  currentPeriodEnd: '2026-02-01T00:00:00Z'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: No active subscription to cancel
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /subscriptions/resume:
+    post:
+      tags:
+        - Subscriptions
+      summary: Resume cancelled subscription
+      description: |
+        Resumes a subscription that was scheduled for cancellation.
+        Only works if the subscription is still in the active period.
+      operationId: resumeSubscription
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Subscription resumed successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubscriptionResponse'
+              example:
+                success: true
+                data:
+                  id: sub_abc123
+                  userId: usr_123
+                  tier: plus
+                  status: active
+                  cancelAtPeriodEnd: false
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '400':
+          description: Subscription cannot be resumed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                success: false
+                error:
+                  code: INVALID_INPUT
+                  message: Subscription is not scheduled for cancellation or has already expired
+
+  # ============================================================================
+  # CREDITS
+  # ============================================================================
+  /credits/balance:
+    get:
+      tags:
+        - Credits
+      summary: Get credit balance
+      description: Returns the authenticated user's current credit balance and usage stats
+      operationId: getCreditBalance
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Credit balance details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreditBalanceResponse'
+              example:
+                success: true
+                data:
+                  balance: 1500
+                  lifetimePurchased: 5000
+                  lifetimeUsed: 3500
+                  lifetimeEarned: 0
+                  lastPurchaseAt: '2026-01-15T10:00:00Z'
+                  lastUsageAt: '2026-01-29T08:30:00Z'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /credits/purchase:
+    post:
+      tags:
+        - Credits
+      summary: Purchase credits
+      description: |
+        Creates a Stripe Checkout session for purchasing credits.
+        Credit packages: 500 ($5), 1000 ($10), 2500 ($25), 5000 ($50), 10000 ($100)
+      operationId: purchaseCredits
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PurchaseCreditsRequest'
+            example:
+              packageId: credits_1000
+              successUrl: https://bostonia.ai/credits/success
+              cancelUrl: https://bostonia.ai/credits
+      responses:
+        '200':
+          description: Checkout session created for credit purchase
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CheckoutSessionResponse'
+              example:
+                success: true
+                data:
+                  sessionId: cs_test_credits_123
+                  checkoutUrl: https://checkout.stripe.com/c/pay/cs_test_credits_123
+                  expiresAt: '2026-01-29T13:00:00Z'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /credits/packages:
+    get:
+      tags:
+        - Credits
+      summary: List credit packages
+      description: Returns all available credit packages for purchase
+      operationId: listCreditPackages
+      responses:
+        '200':
+          description: List of credit packages
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreditPackagesResponse'
+              example:
+                success: true
+                data:
+                  - id: credits_500
+                    credits: 500
+                    price: 500
+                    currency: usd
+                    stripePriceId: price_credits_500
+                    bonus: 0
+                    popular: false
+                  - id: credits_1000
+                    credits: 1000
+                    price: 1000
+                    currency: usd
+                    stripePriceId: price_credits_1000
+                    bonus: 0
+                    popular: true
+                  - id: credits_2500
+                    credits: 2500
+                    price: 2500
+                    currency: usd
+                    stripePriceId: price_credits_2500
+                    bonus: 250
+                    popular: false
+                  - id: credits_5000
+                    credits: 5000
+                    price: 5000
+                    currency: usd
+                    stripePriceId: price_credits_5000
+                    bonus: 750
+                    popular: false
+                  - id: credits_10000
+                    credits: 10000
+                    price: 10000
+                    currency: usd
+                    stripePriceId: price_credits_10000
+                    bonus: 2000
+                    popular: false
+
+  /credits/transactions:
+    get:
+      tags:
+        - Credits
+      summary: Get credit transaction history
+      description: Returns the user's credit transaction history with pagination
+      operationId: getCreditTransactions
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          description: Page number (1-indexed)
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: limit
+          in: query
+          description: Items per page
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: type
+          in: query
+          description: Filter by transaction type
+          schema:
+            type: string
+            enum: [purchase, usage, refund, bonus, subscription]
+        - name: startDate
+          in: query
+          description: Filter transactions from this date (ISO 8601)
+          schema:
+            type: string
+            format: date-time
+        - name: endDate
+          in: query
+          description: Filter transactions until this date (ISO 8601)
+          schema:
+            type: string
+            format: date-time
+      responses:
+        '200':
+          description: Credit transaction history
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreditTransactionsResponse'
+              example:
+                success: true
+                data:
+                  - id: txn_123
+                    type: purchase
+                    amount: 1000
+                    balance: 1500
+                    description: Purchased 1000 credits
+                    referenceId: cs_test_123
+                    createdAt: '2026-01-15T10:00:00Z'
+                  - id: txn_122
+                    type: usage
+                    amount: -50
+                    balance: 500
+                    description: Premium character interaction
+                    referenceId: char_456
+                    createdAt: '2026-01-14T15:30:00Z'
+                meta:
+                  page: 1
+                  limit: 20
+                  total: 45
+                  totalPages: 3
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /credits/deduct:
+    post:
+      tags:
+        - Credits
+      summary: Deduct credits (internal)
+      description: |
+        Internal endpoint for deducting credits from a user's balance.
+        Used by other services (e.g., Chat Service) for premium features.
+        Requires internal service authentication.
+      operationId: deductCredits
+      security:
+        - InternalServiceAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeductCreditsRequest'
+            example:
+              userId: usr_123
+              amount: 50
+              description: Premium character interaction
+              referenceType: character
+              referenceId: char_456
+              idempotencyKey: idem_abc123
+      responses:
+        '200':
+          description: Credits deducted successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeductCreditsResponse'
+              example:
+                success: true
+                data:
+                  transactionId: txn_124
+                  previousBalance: 1500
+                  amountDeducted: 50
+                  newBalance: 1450
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '403':
+          description: Insufficient credits
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                success: false
+                error:
+                  code: INSUFFICIENT_CREDITS
+                  message: User does not have enough credits
+                  details:
+                    required: 50
+                    available: 30
+        '409':
+          description: Duplicate idempotency key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                success: false
+                error:
+                  code: CONFLICT
+                  message: Transaction with this idempotency key already processed
+
+  # ============================================================================
+  # BILLING
+  # ============================================================================
+  /billing/history:
+    get:
+      tags:
+        - Billing
+      summary: Get billing history
+      description: Returns the user's billing history including invoices and payments
+      operationId: getBillingHistory
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: status
+          in: query
+          description: Filter by invoice status
+          schema:
+            type: string
+            enum: [draft, open, paid, uncollectible, void]
+      responses:
+        '200':
+          description: Billing history
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BillingHistoryResponse'
+              example:
+                success: true
+                data:
+                  - id: inv_123
+                    stripeInvoiceId: in_123
+                    number: INV-2026-001
+                    status: paid
+                    amountDue: 999
+                    amountPaid: 999
+                    currency: usd
+                    description: Plus subscription - January 2026
+                    periodStart: '2026-01-01T00:00:00Z'
+                    periodEnd: '2026-02-01T00:00:00Z'
+                    paidAt: '2026-01-01T00:00:00Z'
+                    invoicePdfUrl: https://pay.stripe.com/invoice/123/pdf
+                    hostedInvoiceUrl: https://invoice.stripe.com/i/123
+                    createdAt: '2026-01-01T00:00:00Z'
+                meta:
+                  page: 1
+                  limit: 20
+                  total: 12
+                  totalPages: 1
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /billing/invoices/{invoiceId}:
+    get:
+      tags:
+        - Billing
+      summary: Get invoice details
+      description: Returns detailed information for a specific invoice
+      operationId: getInvoice
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: invoiceId
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Invoice ID
+      responses:
+        '200':
+          description: Invoice details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvoiceResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /billing/payment-methods:
+    get:
+      tags:
+        - Billing
+      summary: Get payment methods
+      description: Returns the user's saved payment methods
+      operationId: getPaymentMethods
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: List of payment methods
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentMethodsResponse'
+              example:
+                success: true
+                data:
+                  - id: pm_123
+                    type: card
+                    card:
+                      brand: visa
+                      last4: '4242'
+                      expMonth: 12
+                      expYear: 2028
+                    isDefault: true
+                    createdAt: '2025-12-01T00:00:00Z'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /billing/payment-methods/setup:
+    post:
+      tags:
+        - Billing
+      summary: Create payment method setup session
+      description: |
+        Creates a Stripe Setup Intent for adding a new payment method.
+        Returns a client secret for use with Stripe.js.
+      operationId: createPaymentMethodSetup
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetupPaymentMethodRequest'
+            example:
+              returnUrl: https://bostonia.ai/settings/billing
+      responses:
+        '200':
+          description: Setup intent created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SetupIntentResponse'
+              example:
+                success: true
+                data:
+                  clientSecret: seti_123_secret_456
+                  setupIntentId: seti_123
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /billing/payment-methods/{paymentMethodId}:
+    delete:
+      tags:
+        - Billing
+      summary: Remove payment method
+      description: Removes a saved payment method from the user's account
+      operationId: removePaymentMethod
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: paymentMethodId
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Payment method ID
+      responses:
+        '200':
+          description: Payment method removed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+              example:
+                success: true
+                data:
+                  message: Payment method removed successfully
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '400':
+          description: Cannot remove default payment method with active subscription
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                success: false
+                error:
+                  code: INVALID_INPUT
+                  message: Cannot remove the default payment method while you have an active subscription. Please add another payment method first.
+
+  /billing/payment-methods/{paymentMethodId}/default:
+    post:
+      tags:
+        - Billing
+      summary: Set default payment method
+      description: Sets a payment method as the default for future charges
+      operationId: setDefaultPaymentMethod
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: paymentMethodId
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Payment method ID
+      responses:
+        '200':
+          description: Default payment method updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+              example:
+                success: true
+                data:
+                  message: Default payment method updated successfully
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ============================================================================
+  # WEBHOOKS
+  # ============================================================================
+  /webhooks/stripe:
+    post:
+      tags:
+        - Webhooks
+      summary: Stripe webhook handler
+      description: |
+        Handles incoming webhook events from Stripe.
+
+        Supported events:
+        - `checkout.session.completed`: Subscription created or credits purchased
+        - `customer.subscription.updated`: Subscription changed (upgraded/downgraded)
+        - `customer.subscription.deleted`: Subscription cancelled
+        - `invoice.paid`: Successful payment
+        - `invoice.payment_failed`: Failed payment
+        - `customer.created`: New Stripe customer
+        - `payment_method.attached`: New payment method added
+
+        Webhook signature verification is performed using the Stripe webhook secret.
+      operationId: handleStripeWebhook
+      parameters:
+        - name: stripe-signature
+          in: header
+          required: true
+          schema:
+            type: string
+          description: Stripe webhook signature for verification
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: Stripe event payload
+      responses:
+        '200':
+          description: Webhook processed successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookResponse'
+              example:
+                success: true
+                data:
+                  received: true
+                  eventType: checkout.session.completed
+                  eventId: evt_123
+        '400':
+          description: Invalid webhook payload or signature
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                success: false
+                error:
+                  code: INVALID_INPUT
+                  message: Invalid Stripe webhook signature
+
+  # ============================================================================
+  # CREATOR PAYOUTS
+  # ============================================================================
+  /creator/earnings:
+    get:
+      tags:
+        - Creator Payouts
+      summary: Get earnings summary
+      description: Returns the creator's earnings summary including pending and paid amounts
+      operationId: getCreatorEarnings
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: startDate
+          in: query
+          description: Filter earnings from this date
+          schema:
+            type: string
+            format: date
+        - name: endDate
+          in: query
+          description: Filter earnings until this date
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: Earnings summary
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EarningsSummaryResponse'
+              example:
+                success: true
+                data:
+                  totalEarnings: 125000
+                  pendingPayout: 35000
+                  availableForPayout: 30000
+                  lifetimePaid: 90000
+                  currency: usd
+                  revenueShareRate: 0.70
+                  minimumPayout: 5000
+                  breakdown:
+                    subscriptionShare: 85000
+                    premiumUnlocks: 30000
+                    tips: 10000
+                  thisMonth:
+                    earnings: 15000
+                    interactions: 5420
+                    uniqueUsers: 342
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: User is not a creator
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                success: false
+                error:
+                  code: FORBIDDEN
+                  message: You must be a verified creator to access earnings
+
+  /creator/earnings/history:
+    get:
+      tags:
+        - Creator Payouts
+      summary: Get detailed earnings history
+      description: Returns detailed earnings breakdown by character and type
+      operationId: getEarningsHistory
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: characterId
+          in: query
+          description: Filter by character
+          schema:
+            type: string
+        - name: type
+          in: query
+          description: Filter by earning type
+          schema:
+            type: string
+            enum: [subscription_share, premium_unlock, tip]
+      responses:
+        '200':
+          description: Earnings history
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EarningsHistoryResponse'
+              example:
+                success: true
+                data:
+                  - id: earn_123
+                    characterId: char_456
+                    characterName: Luna the Wise
+                    type: premium_unlock
+                    grossAmount: 100
+                    platformFee: 30
+                    netAmount: 70
+                    userId: usr_789
+                    createdAt: '2026-01-29T10:00:00Z'
+                meta:
+                  page: 1
+                  limit: 20
+                  total: 156
+                  totalPages: 8
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /creator/payouts:
+    get:
+      tags:
+        - Creator Payouts
+      summary: Get payout history
+      description: Returns the creator's payout history
+      operationId: getPayoutHistory
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: status
+          in: query
+          description: Filter by payout status
+          schema:
+            type: string
+            enum: [pending, processing, completed, failed]
+      responses:
+        '200':
+          description: Payout history
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PayoutHistoryResponse'
+              example:
+                success: true
+                data:
+                  - id: payout_123
+                    amount: 50000
+                    currency: usd
+                    status: completed
+                    stripeTransferId: tr_123
+                    requestedAt: '2026-01-15T00:00:00Z'
+                    processedAt: '2026-01-17T00:00:00Z'
+                    completedAt: '2026-01-17T12:00:00Z'
+                meta:
+                  page: 1
+                  limit: 20
+                  total: 5
+                  totalPages: 1
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+    post:
+      tags:
+        - Creator Payouts
+      summary: Request payout
+      description: |
+        Requests a payout of available earnings.
+        Requires Stripe Connect account to be set up.
+        Minimum payout amount is $50.00 (5000 cents).
+      operationId: requestPayout
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RequestPayoutRequest'
+            example:
+              amount: 50000
+      responses:
+        '200':
+          description: Payout requested successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PayoutResponse'
+              example:
+                success: true
+                data:
+                  id: payout_124
+                  amount: 50000
+                  currency: usd
+                  status: pending
+                  estimatedArrival: '2026-02-01T00:00:00Z'
+                  requestedAt: '2026-01-29T12:00:00Z'
+        '400':
+          description: Insufficient balance or invalid amount
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                success: false
+                error:
+                  code: INVALID_INPUT
+                  message: Minimum payout amount is $50.00
+                  details:
+                    minimumAmount: 5000
+                    availableAmount: 3000
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: Stripe Connect not set up
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                success: false
+                error:
+                  code: FORBIDDEN
+                  message: Please complete your Stripe Connect setup before requesting payouts
+
+  /creator/stripe-connect/setup:
+    post:
+      tags:
+        - Creator Payouts
+      summary: Setup Stripe Connect
+      description: |
+        Creates a Stripe Connect account link for creator onboarding.
+        Returns a URL to redirect the creator to for completing their account setup.
+      operationId: setupStripeConnect
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StripeConnectSetupRequest'
+            example:
+              refreshUrl: https://bostonia.ai/creator/payouts/setup
+              returnUrl: https://bostonia.ai/creator/payouts
+      responses:
+        '200':
+          description: Account link created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StripeConnectSetupResponse'
+              example:
+                success: true
+                data:
+                  accountLinkUrl: https://connect.stripe.com/setup/123
+                  expiresAt: '2026-01-29T13:00:00Z'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: User is not a creator
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /creator/stripe-connect/status:
+    get:
+      tags:
+        - Creator Payouts
+      summary: Get Stripe Connect status
+      description: Returns the status of the creator's Stripe Connect account
+      operationId: getStripeConnectStatus
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Stripe Connect status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StripeConnectStatusResponse'
+              example:
+                success: true
+                data:
+                  hasAccount: true
+                  accountId: acct_123
+                  chargesEnabled: true
+                  payoutsEnabled: true
+                  detailsSubmitted: true
+                  requirements:
+                    currentlyDue: []
+                    eventuallyDue: []
+                    pendingVerification: []
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+# ============================================================================
+# COMPONENTS
+# ============================================================================
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT token obtained from the Auth Service
+    InternalServiceAuth:
+      type: apiKey
+      in: header
+      name: X-Internal-Service-Key
+      description: Internal service-to-service authentication key
+
+  responses:
+    Unauthorized:
+      description: Authentication required or invalid token
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            success: false
+            error:
+              code: UNAUTHORIZED
+              message: Authentication required
+
+    Forbidden:
+      description: Insufficient permissions
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            success: false
+            error:
+              code: FORBIDDEN
+              message: Insufficient permissions to access this resource
+
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            success: false
+            error:
+              code: NOT_FOUND
+              message: Resource not found
+
+    ValidationError:
+      description: Invalid input data
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            success: false
+            error:
+              code: VALIDATION_ERROR
+              message: Validation failed
+              details:
+                planId: Invalid plan ID
+
+  schemas:
+    # Base Response Schemas
+    SuccessResponse:
+      type: object
+      required:
+        - success
+      properties:
+        success:
+          type: boolean
+          enum: [true]
+        data:
+          type: object
+        meta:
+          $ref: '#/components/schemas/PaginationMeta'
+
+    ErrorResponse:
+      type: object
+      required:
+        - success
+        - error
+      properties:
+        success:
+          type: boolean
+          enum: [false]
+        error:
+          $ref: '#/components/schemas/ApiError'
+
+    ApiError:
+      type: object
+      required:
+        - code
+        - message
+      properties:
+        code:
+          type: string
+          description: Error code for programmatic handling
+        message:
+          type: string
+          description: Human-readable error message
+        details:
+          type: object
+          additionalProperties: true
+          description: Additional error details
+
+    PaginationMeta:
+      type: object
+      properties:
+        page:
+          type: integer
+          description: Current page number
+        limit:
+          type: integer
+          description: Items per page
+        total:
+          type: integer
+          description: Total number of items
+        totalPages:
+          type: integer
+          description: Total number of pages
+
+    # Health Check
+    HealthResponse:
+      type: object
+      required:
+        - success
+        - data
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          properties:
+            status:
+              type: string
+              enum: [healthy, degraded, unhealthy]
+            service:
+              type: string
+            version:
+              type: string
+            timestamp:
+              type: string
+              format: date-time
+
+    # Subscription Schemas
+    Subscription:
+      type: object
+      properties:
+        id:
+          type: string
+        userId:
+          type: string
+        tier:
+          type: string
+          enum: [free, plus, pro]
+        status:
+          type: string
+          enum: [active, past_due, canceled, incomplete, trialing]
+        stripeCustomerId:
+          type: string
+        stripeSubscriptionId:
+          type: string
+        currentPeriodStart:
+          type: string
+          format: date-time
+        currentPeriodEnd:
+          type: string
+          format: date-time
+        cancelAtPeriodEnd:
+          type: boolean
+        features:
+          $ref: '#/components/schemas/SubscriptionFeatures'
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    SubscriptionFeatures:
+      type: object
+      properties:
+        messagesPerMonth:
+          type: integer
+          description: -1 for unlimited
+        messagesUsed:
+          type: integer
+        prioritySupport:
+          type: boolean
+        customPersonas:
+          type: boolean
+        advancedMemory:
+          type: boolean
+        voiceMessages:
+          type: boolean
+
+    SubscriptionPlan:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        tier:
+          type: string
+          enum: [free, plus, pro]
+        price:
+          type: integer
+          description: Price in cents
+        currency:
+          type: string
+        interval:
+          type: string
+          enum: [month, year]
+        stripePriceId:
+          type: string
+        features:
+          type: object
+          properties:
+            messagesPerMonth:
+              type: integer
+            prioritySupport:
+              type: boolean
+            customPersonas:
+              type: boolean
+            advancedMemory:
+              type: boolean
+            voiceMessages:
+              type: boolean
+        popular:
+          type: boolean
+
+    SubscriptionResponse:
+      type: object
+      required:
+        - success
+        - data
+      properties:
+        success:
+          type: boolean
+        data:
+          $ref: '#/components/schemas/Subscription'
+
+    PlansListResponse:
+      type: object
+      required:
+        - success
+        - data
+      properties:
+        success:
+          type: boolean
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/SubscriptionPlan'
+
+    CreateSubscriptionCheckoutRequest:
+      type: object
+      required:
+        - planId
+        - successUrl
+        - cancelUrl
+      properties:
+        planId:
+          type: string
+          description: ID of the subscription plan to purchase
+        successUrl:
+          type: string
+          format: uri
+          description: URL to redirect to on successful checkout
+        cancelUrl:
+          type: string
+          format: uri
+          description: URL to redirect to if checkout is cancelled
+
+    UpdateSubscriptionRequest:
+      type: object
+      required:
+        - newPlanId
+      properties:
+        newPlanId:
+          type: string
+          description: ID of the new plan to switch to
+        prorationBehavior:
+          type: string
+          enum: [create_prorations, none, always_invoice]
+          default: create_prorations
+          description: How to handle proration for plan changes
+
+    CancelSubscriptionRequest:
+      type: object
+      properties:
+        reason:
+          type: string
+          enum: [too_expensive, not_using, missing_features, switching_service, other]
+        feedback:
+          type: string
+          maxLength: 500
+        cancelImmediately:
+          type: boolean
+          default: false
+          description: If true, cancel immediately instead of at period end
+
+    CheckoutSessionResponse:
+      type: object
+      required:
+        - success
+        - data
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          properties:
+            sessionId:
+              type: string
+            checkoutUrl:
+              type: string
+              format: uri
+            expiresAt:
+              type: string
+              format: date-time
+
+    # Credit Schemas
+    CreditBalance:
+      type: object
+      properties:
+        balance:
+          type: integer
+        lifetimePurchased:
+          type: integer
+        lifetimeUsed:
+          type: integer
+        lifetimeEarned:
+          type: integer
+        lastPurchaseAt:
+          type: string
+          format: date-time
+          nullable: true
+        lastUsageAt:
+          type: string
+          format: date-time
+          nullable: true
+
+    CreditBalanceResponse:
+      type: object
+      required:
+        - success
+        - data
+      properties:
+        success:
+          type: boolean
+        data:
+          $ref: '#/components/schemas/CreditBalance'
+
+    CreditPackage:
+      type: object
+      properties:
+        id:
+          type: string
+        credits:
+          type: integer
+        price:
+          type: integer
+          description: Price in cents
+        currency:
+          type: string
+        stripePriceId:
+          type: string
+        bonus:
+          type: integer
+          description: Bonus credits included
+        popular:
+          type: boolean
+
+    CreditPackagesResponse:
+      type: object
+      required:
+        - success
+        - data
+      properties:
+        success:
+          type: boolean
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/CreditPackage'
+
+    PurchaseCreditsRequest:
+      type: object
+      required:
+        - packageId
+        - successUrl
+        - cancelUrl
+      properties:
+        packageId:
+          type: string
+        successUrl:
+          type: string
+          format: uri
+        cancelUrl:
+          type: string
+          format: uri
+
+    CreditTransaction:
+      type: object
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+          enum: [purchase, usage, refund, bonus, subscription]
+        amount:
+          type: integer
+          description: Positive for credits added, negative for credits used
+        balance:
+          type: integer
+          description: Balance after this transaction
+        description:
+          type: string
+        referenceId:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+
+    CreditTransactionsResponse:
+      type: object
+      required:
+        - success
+        - data
+      properties:
+        success:
+          type: boolean
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/CreditTransaction'
+        meta:
+          $ref: '#/components/schemas/PaginationMeta'
+
+    DeductCreditsRequest:
+      type: object
+      required:
+        - userId
+        - amount
+        - description
+        - idempotencyKey
+      properties:
+        userId:
+          type: string
+        amount:
+          type: integer
+          minimum: 1
+        description:
+          type: string
+        referenceType:
+          type: string
+          enum: [character, message, feature]
+        referenceId:
+          type: string
+        idempotencyKey:
+          type: string
+          description: Unique key to prevent duplicate deductions
+
+    DeductCreditsResponse:
+      type: object
+      required:
+        - success
+        - data
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          properties:
+            transactionId:
+              type: string
+            previousBalance:
+              type: integer
+            amountDeducted:
+              type: integer
+            newBalance:
+              type: integer
+
+    # Billing Schemas
+    Invoice:
+      type: object
+      properties:
+        id:
+          type: string
+        stripeInvoiceId:
+          type: string
+        number:
+          type: string
+        status:
+          type: string
+          enum: [draft, open, paid, uncollectible, void]
+        amountDue:
+          type: integer
+        amountPaid:
+          type: integer
+        currency:
+          type: string
+        description:
+          type: string
+        periodStart:
+          type: string
+          format: date-time
+        periodEnd:
+          type: string
+          format: date-time
+        paidAt:
+          type: string
+          format: date-time
+          nullable: true
+        invoicePdfUrl:
+          type: string
+          format: uri
+          nullable: true
+        hostedInvoiceUrl:
+          type: string
+          format: uri
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+
+    BillingHistoryResponse:
+      type: object
+      required:
+        - success
+        - data
+      properties:
+        success:
+          type: boolean
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Invoice'
+        meta:
+          $ref: '#/components/schemas/PaginationMeta'
+
+    InvoiceResponse:
+      type: object
+      required:
+        - success
+        - data
+      properties:
+        success:
+          type: boolean
+        data:
+          $ref: '#/components/schemas/Invoice'
+
+    PaymentMethod:
+      type: object
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+          enum: [card, bank_account]
+        card:
+          type: object
+          properties:
+            brand:
+              type: string
+              enum: [visa, mastercard, amex, discover, other]
+            last4:
+              type: string
+            expMonth:
+              type: integer
+            expYear:
+              type: integer
+        isDefault:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+
+    PaymentMethodsResponse:
+      type: object
+      required:
+        - success
+        - data
+      properties:
+        success:
+          type: boolean
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/PaymentMethod'
+
+    SetupPaymentMethodRequest:
+      type: object
+      properties:
+        returnUrl:
+          type: string
+          format: uri
+
+    SetupIntentResponse:
+      type: object
+      required:
+        - success
+        - data
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          properties:
+            clientSecret:
+              type: string
+            setupIntentId:
+              type: string
+
+    # Webhook Schemas
+    WebhookResponse:
+      type: object
+      required:
+        - success
+        - data
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          properties:
+            received:
+              type: boolean
+            eventType:
+              type: string
+            eventId:
+              type: string
+
+    # Creator Payout Schemas
+    EarningsSummary:
+      type: object
+      properties:
+        totalEarnings:
+          type: integer
+          description: Total lifetime earnings in cents
+        pendingPayout:
+          type: integer
+          description: Earnings not yet available for payout
+        availableForPayout:
+          type: integer
+          description: Earnings available to withdraw
+        lifetimePaid:
+          type: integer
+          description: Total amount paid out
+        currency:
+          type: string
+        revenueShareRate:
+          type: number
+          description: Creator's revenue share percentage (0.70 = 70%)
+        minimumPayout:
+          type: integer
+          description: Minimum amount required for payout
+        breakdown:
+          type: object
+          properties:
+            subscriptionShare:
+              type: integer
+            premiumUnlocks:
+              type: integer
+            tips:
+              type: integer
+        thisMonth:
+          type: object
+          properties:
+            earnings:
+              type: integer
+            interactions:
+              type: integer
+            uniqueUsers:
+              type: integer
+
+    EarningsSummaryResponse:
+      type: object
+      required:
+        - success
+        - data
+      properties:
+        success:
+          type: boolean
+        data:
+          $ref: '#/components/schemas/EarningsSummary'
+
+    EarningEntry:
+      type: object
+      properties:
+        id:
+          type: string
+        characterId:
+          type: string
+        characterName:
+          type: string
+        type:
+          type: string
+          enum: [subscription_share, premium_unlock, tip]
+        grossAmount:
+          type: integer
+        platformFee:
+          type: integer
+        netAmount:
+          type: integer
+        userId:
+          type: string
+          description: Anonymized user identifier
+        createdAt:
+          type: string
+          format: date-time
+
+    EarningsHistoryResponse:
+      type: object
+      required:
+        - success
+        - data
+      properties:
+        success:
+          type: boolean
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/EarningEntry'
+        meta:
+          $ref: '#/components/schemas/PaginationMeta'
+
+    Payout:
+      type: object
+      properties:
+        id:
+          type: string
+        amount:
+          type: integer
+        currency:
+          type: string
+        status:
+          type: string
+          enum: [pending, processing, completed, failed]
+        stripeTransferId:
+          type: string
+          nullable: true
+        requestedAt:
+          type: string
+          format: date-time
+        processedAt:
+          type: string
+          format: date-time
+          nullable: true
+        completedAt:
+          type: string
+          format: date-time
+          nullable: true
+        failureReason:
+          type: string
+          nullable: true
+
+    PayoutHistoryResponse:
+      type: object
+      required:
+        - success
+        - data
+      properties:
+        success:
+          type: boolean
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Payout'
+        meta:
+          $ref: '#/components/schemas/PaginationMeta'
+
+    RequestPayoutRequest:
+      type: object
+      properties:
+        amount:
+          type: integer
+          description: Amount to withdraw in cents. If not specified, withdraws all available.
+
+    PayoutResponse:
+      type: object
+      required:
+        - success
+        - data
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          properties:
+            id:
+              type: string
+            amount:
+              type: integer
+            currency:
+              type: string
+            status:
+              type: string
+            estimatedArrival:
+              type: string
+              format: date-time
+            requestedAt:
+              type: string
+              format: date-time
+
+    StripeConnectSetupRequest:
+      type: object
+      required:
+        - refreshUrl
+        - returnUrl
+      properties:
+        refreshUrl:
+          type: string
+          format: uri
+          description: URL to redirect if the link expires
+        returnUrl:
+          type: string
+          format: uri
+          description: URL to redirect after completing setup
+
+    StripeConnectSetupResponse:
+      type: object
+      required:
+        - success
+        - data
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          properties:
+            accountLinkUrl:
+              type: string
+              format: uri
+            expiresAt:
+              type: string
+              format: date-time
+
+    StripeConnectStatusResponse:
+      type: object
+      required:
+        - success
+        - data
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          properties:
+            hasAccount:
+              type: boolean
+            accountId:
+              type: string
+              nullable: true
+            chargesEnabled:
+              type: boolean
+            payoutsEnabled:
+              type: boolean
+            detailsSubmitted:
+              type: boolean
+            requirements:
+              type: object
+              properties:
+                currentlyDue:
+                  type: array
+                  items:
+                    type: string
+                eventuallyDue:
+                  type: array
+                  items:
+                    type: string
+                pendingVerification:
+                  type: array
+                  items:
+                    type: string

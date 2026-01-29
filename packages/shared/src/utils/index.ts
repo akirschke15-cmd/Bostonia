@@ -66,6 +66,12 @@ export const ErrorCodes = {
   // Content moderation
   CONTENT_BLOCKED: 'CONTENT_BLOCKED',
   MODERATION_FAILED: 'MODERATION_FAILED',
+
+  // API Key errors
+  INVALID_API_KEY: 'INVALID_API_KEY',
+  API_KEY_EXPIRED: 'API_KEY_EXPIRED',
+  API_KEY_INACTIVE: 'API_KEY_INACTIVE',
+  INSUFFICIENT_SCOPES: 'INSUFFICIENT_SCOPES',
 } as const;
 
 /**
@@ -92,6 +98,10 @@ export const ErrorCodeToStatus: Record<string, number> = {
   [ErrorCodes.SERVICE_UNAVAILABLE]: 503,
   [ErrorCodes.CONTENT_BLOCKED]: 400,
   [ErrorCodes.MODERATION_FAILED]: 500,
+  [ErrorCodes.INVALID_API_KEY]: 401,
+  [ErrorCodes.API_KEY_EXPIRED]: 401,
+  [ErrorCodes.API_KEY_INACTIVE]: 401,
+  [ErrorCodes.INSUFFICIENT_SCOPES]: 403,
 };
 
 /**

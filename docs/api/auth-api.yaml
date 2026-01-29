@@ -1,0 +1,772 @@
+openapi: 3.0.3
+info:
+  title: Bostonia Auth Service API
+  description: |
+    Authentication Service API for Bostonia AI Character Chat Platform.
+
+    This service handles all authentication-related functionality including:
+    - Email/password registration and login
+    - OAuth authentication (Google, Discord, GitHub)
+    - JWT token management (access + refresh tokens)
+    - Session management and logout
+
+    ## Authentication Flow
+
+    1. **Registration/Login**: User authenticates and receives access + refresh tokens
+    2. **API Requests**: Include access token in `Authorization: Bearer <token>` header
+    3. **Token Refresh**: When access token expires, use refresh token to get new tokens
+    4. **Logout**: Revoke refresh tokens to end session
+
+    ## Token Expiration
+    - Access Token: 15 minutes (configurable via JWT_EXPIRES_IN)
+    - Refresh Token: 7 days (configurable via REFRESH_TOKEN_EXPIRES_IN)
+
+  version: 1.0.0
+  contact:
+    name: Bostonia API Team
+    email: api@bostonia.ai
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: http://localhost:3001
+    description: Local development server
+  - url: https://api.bostonia.ai/auth
+    description: Production server
+
+tags:
+  - name: Authentication
+    description: User authentication endpoints
+  - name: OAuth
+    description: OAuth provider authentication
+  - name: Session
+    description: Session and token management
+  - name: Health
+    description: Service health check endpoints
+
+paths:
+  # ============================================================================
+  # HEALTH CHECK
+  # ============================================================================
+  /health:
+    get:
+      tags:
+        - Health
+      summary: Health check
+      description: Returns the health status of the Auth Service
+      operationId: healthCheck
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+              example:
+                success: true
+                data:
+                  status: healthy
+                  service: auth-service
+                  timestamp: '2026-01-29T12:00:00Z'
+
+  /health/ready:
+    get:
+      tags:
+        - Health
+      summary: Readiness check
+      description: Returns the readiness status including database connectivity
+      operationId: readinessCheck
+      responses:
+        '200':
+          description: Service is ready
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReadinessResponse'
+              example:
+                success: true
+                data:
+                  status: ready
+                  service: auth-service
+                  checks:
+                    database: connected
+        '503':
+          description: Service not ready
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                success: false
+                error:
+                  code: SERVICE_UNAVAILABLE
+                  message: Service not ready
+
+  # ============================================================================
+  # AUTHENTICATION
+  # ============================================================================
+  /api/auth/register:
+    post:
+      tags:
+        - Authentication
+      summary: Register new user
+      description: |
+        Creates a new user account with email and password.
+        Returns the user profile along with access and refresh tokens.
+      operationId: registerUser
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+            example:
+              email: user@example.com
+              username: johndoe
+              displayName: John Doe
+              password: SecureP@ssw0rd!
+      responses:
+        '201':
+          description: User registered successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+              example:
+                success: true
+                data:
+                  user:
+                    id: usr_abc123
+                    email: user@example.com
+                    username: johndoe
+                    displayName: John Doe
+                    role: USER
+                  accessToken: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+                  refreshToken: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '409':
+          description: User already exists
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                success: false
+                error:
+                  code: ALREADY_EXISTS
+                  message: User with this email already exists
+
+  /api/auth/login:
+    post:
+      tags:
+        - Authentication
+      summary: Login with email/password
+      description: |
+        Authenticates a user with email and password.
+        Returns the user profile along with access and refresh tokens.
+        Updates the user's lastLoginAt timestamp.
+      operationId: loginUser
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+            example:
+              email: user@example.com
+              password: SecureP@ssw0rd!
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+              example:
+                success: true
+                data:
+                  user:
+                    id: usr_abc123
+                    email: user@example.com
+                    username: johndoe
+                    displayName: John Doe
+                    avatarUrl: https://example.com/avatar.jpg
+                    role: USER
+                    credits: 100
+                    subscriptionTier: FREE
+                  accessToken: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+                  refreshToken: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                success: false
+                error:
+                  code: INVALID_CREDENTIALS
+                  message: Invalid email or password
+        '403':
+          description: Account not active
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                success: false
+                error:
+                  code: FORBIDDEN
+                  message: Account is not active
+
+  /api/auth/logout:
+    post:
+      tags:
+        - Session
+      summary: Logout user
+      description: |
+        Logs out the user by revoking their refresh token(s).
+        If a specific refresh token is provided, only that token is revoked.
+        Otherwise, all refresh tokens for the user are revoked.
+      operationId: logoutUser
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LogoutRequest'
+            example:
+              refreshToken: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+      responses:
+        '200':
+          description: Logged out successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+              example:
+                success: true
+                data:
+                  message: Logged out successfully
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/auth/refresh:
+    post:
+      tags:
+        - Session
+      summary: Refresh access token
+      description: |
+        Exchanges a valid refresh token for new access and refresh tokens.
+        The old refresh token is revoked and a new one is issued (token rotation).
+      operationId: refreshToken
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshRequest'
+            example:
+              refreshToken: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+      responses:
+        '200':
+          description: Tokens refreshed successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+              example:
+                success: true
+                data:
+                  accessToken: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+                  refreshToken: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+        '400':
+          description: Missing refresh token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                success: false
+                error:
+                  code: INVALID_INPUT
+                  message: Refresh token required
+        '401':
+          description: Invalid or expired refresh token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                success: false
+                error:
+                  code: INVALID_TOKEN
+                  message: Invalid refresh token
+
+  /api/auth/me:
+    get:
+      tags:
+        - Authentication
+      summary: Get current user
+      description: Returns the profile of the currently authenticated user
+      operationId: getCurrentUser
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Current user profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserProfileResponse'
+              example:
+                success: true
+                data:
+                  id: usr_abc123
+                  email: user@example.com
+                  username: johndoe
+                  displayName: John Doe
+                  avatarUrl: https://example.com/avatar.jpg
+                  role: USER
+                  credits: 100
+                  subscriptionTier: FREE
+                  emailVerified: true
+                  createdAt: '2025-12-01T00:00:00Z'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: User not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # ============================================================================
+  # OAUTH
+  # ============================================================================
+  /api/auth/google:
+    get:
+      tags:
+        - OAuth
+      summary: Initiate Google OAuth
+      description: |
+        Redirects user to Google OAuth consent page.
+        After authentication, user is redirected to /api/auth/google/callback.
+      operationId: googleOAuthInit
+      responses:
+        '302':
+          description: Redirect to Google OAuth
+          headers:
+            Location:
+              schema:
+                type: string
+              description: Google OAuth consent URL
+
+  /api/auth/google/callback:
+    get:
+      tags:
+        - OAuth
+      summary: Google OAuth callback
+      description: |
+        Handles the callback from Google OAuth.
+        Creates or links user account and redirects to frontend with tokens.
+      operationId: googleOAuthCallback
+      parameters:
+        - name: code
+          in: query
+          description: OAuth authorization code from Google
+          schema:
+            type: string
+        - name: state
+          in: query
+          description: OAuth state parameter
+          schema:
+            type: string
+      responses:
+        '302':
+          description: Redirect to frontend with tokens
+          headers:
+            Location:
+              schema:
+                type: string
+              description: Frontend URL with accessToken and refreshToken query params
+              example: https://bostonia.ai/auth/callback?accessToken=xxx&refreshToken=yyy
+
+  /api/auth/discord:
+    get:
+      tags:
+        - OAuth
+      summary: Initiate Discord OAuth
+      description: |
+        Redirects user to Discord OAuth consent page.
+        Note: Discord OAuth must be configured via DISCORD_CLIENT_ID and DISCORD_CLIENT_SECRET.
+      operationId: discordOAuthInit
+      responses:
+        '302':
+          description: Redirect to Discord OAuth
+
+  /api/auth/discord/callback:
+    get:
+      tags:
+        - OAuth
+      summary: Discord OAuth callback
+      description: Handles the callback from Discord OAuth
+      operationId: discordOAuthCallback
+      parameters:
+        - name: code
+          in: query
+          schema:
+            type: string
+      responses:
+        '302':
+          description: Redirect to frontend with tokens
+
+  /api/auth/github:
+    get:
+      tags:
+        - OAuth
+      summary: Initiate GitHub OAuth
+      description: |
+        Redirects user to GitHub OAuth consent page.
+        Note: GitHub OAuth must be configured via GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET.
+      operationId: githubOAuthInit
+      responses:
+        '302':
+          description: Redirect to GitHub OAuth
+
+  /api/auth/github/callback:
+    get:
+      tags:
+        - OAuth
+      summary: GitHub OAuth callback
+      description: Handles the callback from GitHub OAuth
+      operationId: githubOAuthCallback
+      parameters:
+        - name: code
+          in: query
+          schema:
+            type: string
+      responses:
+        '302':
+          description: Redirect to frontend with tokens
+
+# ============================================================================
+# COMPONENTS
+# ============================================================================
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        JWT access token for API authentication.
+
+        **Token Payload Structure:**
+        ```json
+        {
+          "userId": "usr_abc123",
+          "email": "user@example.com",
+          "role": "USER",
+          "iat": 1706529600,
+          "exp": 1706530500
+        }
+        ```
+
+        **Token Expiration:** 15 minutes (default)
+
+        **Usage:** Include in Authorization header as `Bearer <token>`
+
+  responses:
+    Unauthorized:
+      description: Authentication required or invalid token
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            success: false
+            error:
+              code: UNAUTHORIZED
+              message: No token provided
+
+    ValidationError:
+      description: Invalid input data
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            success: false
+            error:
+              code: VALIDATION_ERROR
+              message: Validation failed
+              details:
+                email: Invalid email format
+
+  schemas:
+    # Base Response Schemas
+    SuccessResponse:
+      type: object
+      required:
+        - success
+      properties:
+        success:
+          type: boolean
+          enum: [true]
+        data:
+          type: object
+
+    ErrorResponse:
+      type: object
+      required:
+        - success
+        - error
+      properties:
+        success:
+          type: boolean
+          enum: [false]
+        error:
+          $ref: '#/components/schemas/ApiError'
+
+    ApiError:
+      type: object
+      required:
+        - code
+        - message
+      properties:
+        code:
+          type: string
+          description: Error code for programmatic handling
+          enum:
+            - UNAUTHORIZED
+            - INVALID_CREDENTIALS
+            - INVALID_TOKEN
+            - INVALID_INPUT
+            - VALIDATION_ERROR
+            - NOT_FOUND
+            - ALREADY_EXISTS
+            - FORBIDDEN
+            - INTERNAL_ERROR
+        message:
+          type: string
+          description: Human-readable error message
+        details:
+          type: object
+          additionalProperties: true
+          description: Additional error details (e.g., field-level validation errors)
+
+    # Health Check
+    HealthResponse:
+      type: object
+      required:
+        - success
+        - data
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          properties:
+            status:
+              type: string
+              enum: [healthy]
+            service:
+              type: string
+              example: auth-service
+            timestamp:
+              type: string
+              format: date-time
+
+    ReadinessResponse:
+      type: object
+      required:
+        - success
+        - data
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          properties:
+            status:
+              type: string
+              enum: [ready]
+            service:
+              type: string
+            checks:
+              type: object
+              properties:
+                database:
+                  type: string
+                  enum: [connected, disconnected]
+
+    # Authentication Schemas
+    RegisterRequest:
+      type: object
+      required:
+        - email
+        - username
+        - password
+      properties:
+        email:
+          type: string
+          format: email
+          description: User's email address (must be unique)
+          example: user@example.com
+        username:
+          type: string
+          minLength: 3
+          maxLength: 30
+          pattern: '^[a-zA-Z0-9_]+$'
+          description: Unique username (alphanumeric and underscores only)
+          example: johndoe
+        displayName:
+          type: string
+          maxLength: 50
+          description: Display name shown to other users
+          example: John Doe
+        password:
+          type: string
+          minLength: 8
+          description: Password (minimum 8 characters)
+          example: SecureP@ssw0rd!
+
+    LoginRequest:
+      type: object
+      required:
+        - email
+        - password
+      properties:
+        email:
+          type: string
+          format: email
+          description: User's email address
+          example: user@example.com
+        password:
+          type: string
+          description: User's password
+          example: SecureP@ssw0rd!
+
+    LogoutRequest:
+      type: object
+      properties:
+        refreshToken:
+          type: string
+          description: |
+            Specific refresh token to revoke.
+            If not provided, all refresh tokens for the user will be revoked.
+
+    RefreshRequest:
+      type: object
+      required:
+        - refreshToken
+      properties:
+        refreshToken:
+          type: string
+          description: Valid refresh token to exchange for new tokens
+
+    # Response Schemas
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Unique user identifier
+          example: usr_abc123
+        email:
+          type: string
+          format: email
+          example: user@example.com
+        username:
+          type: string
+          example: johndoe
+        displayName:
+          type: string
+          example: John Doe
+        avatarUrl:
+          type: string
+          format: uri
+          nullable: true
+          example: https://example.com/avatar.jpg
+        role:
+          type: string
+          enum: [USER, CREATOR, MODERATOR, ADMIN]
+          example: USER
+        credits:
+          type: integer
+          description: User's credit balance
+          example: 100
+        subscriptionTier:
+          type: string
+          enum: [FREE, PLUS, PRO]
+          example: FREE
+        emailVerified:
+          type: boolean
+          example: true
+        createdAt:
+          type: string
+          format: date-time
+          example: '2025-12-01T00:00:00Z'
+
+    AuthResponse:
+      type: object
+      required:
+        - success
+        - data
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          required:
+            - user
+            - accessToken
+            - refreshToken
+          properties:
+            user:
+              $ref: '#/components/schemas/User'
+            accessToken:
+              type: string
+              description: JWT access token (expires in 15 minutes)
+            refreshToken:
+              type: string
+              description: JWT refresh token (expires in 7 days)
+
+    TokenResponse:
+      type: object
+      required:
+        - success
+        - data
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          required:
+            - accessToken
+            - refreshToken
+          properties:
+            accessToken:
+              type: string
+              description: New JWT access token
+            refreshToken:
+              type: string
+              description: New JWT refresh token
+
+    UserProfileResponse:
+      type: object
+      required:
+        - success
+        - data
+      properties:
+        success:
+          type: boolean
+        data:
+          $ref: '#/components/schemas/User'

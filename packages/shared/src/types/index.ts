@@ -234,3 +234,42 @@ export interface TypingIndicator {
   conversationId: string;
   isTyping: boolean;
 }
+
+// API Key types (Enterprise Feature)
+export type ApiKeyScope = 'read' | 'write' | 'admin';
+
+export interface ApiKey {
+  id: string;
+  userId: string;
+  name: string;
+  keyPrefix: string;
+  scopes: ApiKeyScope[];
+  rateLimit: number | null;
+  lastUsedAt: Date | null;
+  createdAt: Date;
+  expiresAt: Date | null;
+  isActive: boolean;
+  description: string | null;
+}
+
+export interface CreateApiKeyRequest {
+  name: string;
+  scopes?: ApiKeyScope[];
+  rateLimit?: number | null;
+  expiresAt?: string | null;
+  description?: string | null;
+}
+
+export interface UpdateApiKeyRequest {
+  name?: string;
+  scopes?: ApiKeyScope[];
+  isActive?: boolean;
+  rateLimit?: number | null;
+  description?: string | null;
+}
+
+export interface CreateApiKeyResponse {
+  apiKey: ApiKey;
+  key: string;
+  warning: string;
+}

@@ -1,0 +1,1007 @@
+openapi: 3.0.3
+info:
+  title: Bostonia Character Service API
+  description: |
+    Character Service API for Bostonia AI Character Chat Platform.
+
+    This service handles all character-related functionality including:
+    - Character CRUD operations
+    - Search and discovery
+    - Categories and tags
+    - Ratings and favorites
+    - Featured characters
+
+    ## Character Visibility
+    - **PUBLIC**: Visible to all users
+    - **UNLISTED**: Accessible via direct link only
+    - **PRIVATE**: Only visible to creator
+
+    ## Character Status
+    - **DRAFT**: Work in progress, not visible
+    - **PUBLISHED**: Live and searchable
+    - **ARCHIVED**: Soft deleted, not visible
+
+  version: 1.0.0
+  contact:
+    name: Bostonia API Team
+    email: api@bostonia.ai
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: http://localhost:3003
+    description: Local development server
+  - url: https://api.bostonia.ai/characters
+    description: Production server
+
+tags:
+  - name: Characters
+    description: Character management endpoints
+  - name: Discovery
+    description: Character discovery and search
+  - name: Interaction
+    description: User interaction with characters (ratings, favorites)
+  - name: Metadata
+    description: Categories and metadata endpoints
+  - name: Health
+    description: Service health check endpoints
+
+paths:
+  # ============================================================================
+  # HEALTH CHECK
+  # ============================================================================
+  /health:
+    get:
+      tags:
+        - Health
+      summary: Health check
+      description: Returns the health status of the Character Service
+      operationId: healthCheck
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+              example:
+                success: true
+                data:
+                  status: healthy
+                  service: character-service
+
+  # ============================================================================
+  # CHARACTER SEARCH/LIST
+  # ============================================================================
+  /api/characters:
+    get:
+      tags:
+        - Discovery
+      summary: Search and list characters
+      description: |
+        Returns a paginated, filterable list of published characters.
+        Supports full-text search across name, tagline, and description.
+      operationId: searchCharacters
+      parameters:
+        - name: page
+          in: query
+          description: Page number (1-indexed)
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: limit
+          in: query
+          description: Items per page
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: query
+          in: query
+          description: Search query (searches name, tagline, description)
+          schema:
+            type: string
+        - name: category
+          in: query
+          description: Filter by category
+          schema:
+            type: string
+        - name: tags
+          in: query
+          description: Filter by tags (comma-separated)
+          schema:
+            type: array
+            items:
+              type: string
+          style: form
+          explode: false
+        - name: creatorId
+          in: query
+          description: Filter by creator
+          schema:
+            type: string
+        - name: visibility
+          in: query
+          description: Filter by visibility
+          schema:
+            type: string
+            enum: [public, unlisted, private]
+        - name: isNsfw
+          in: query
+          description: Filter by NSFW status
+          schema:
+            type: boolean
+        - name: isFeatured
+          in: query
+          description: Filter featured characters only
+          schema:
+            type: boolean
+        - name: minRating
+          in: query
+          description: Minimum rating filter
+          schema:
+            type: number
+            minimum: 0
+            maximum: 5
+        - name: sortBy
+          in: query
+          description: Sort field
+          schema:
+            type: string
+            enum: [chatCount, rating, createdAt, name]
+            default: chatCount
+        - name: sortOrder
+          in: query
+          description: Sort order
+          schema:
+            type: string
+            enum: [asc, desc]
+            default: desc
+      responses:
+        '200':
+          description: List of characters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CharacterListResponse'
+              example:
+                success: true
+                data:
+                  - id: char_abc123
+                    name: Luna
+                    tagline: Your friendly AI companion
+                    description: Luna is a warm and empathetic character...
+                    avatarUrl: https://example.com/luna.jpg
+                    category: Companion
+                    tags: [friendly, supportive, creative]
+                    rating: 4.8
+                    ratingCount: 1250
+                    chatCount: 45000
+                    isFeatured: true
+                    isNsfw: false
+                    createdAt: '2025-06-15T00:00:00Z'
+                    creator:
+                      id: usr_creator1
+                      username: luna_creator
+                      displayName: Luna's Creator
+                meta:
+                  page: 1
+                  limit: 20
+                  total: 342
+                  totalPages: 18
+
+    post:
+      tags:
+        - Characters
+      summary: Create character
+      description: Creates a new character. Requires authentication.
+      operationId: createCharacter
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateCharacterRequest'
+            example:
+              name: Luna
+              tagline: Your friendly AI companion
+              description: Luna is a warm and empathetic AI character designed to be your supportive friend...
+              avatarUrl: https://example.com/luna.jpg
+              bannerUrl: https://example.com/luna-banner.jpg
+              personality:
+                systemPrompt: You are Luna, a warm and supportive AI companion...
+                greeting: Hello! I'm Luna. It's wonderful to meet you!
+                exampleDialogues:
+                  - user: How are you today?
+                    assistant: I'm doing wonderfully, thank you for asking! How about you?
+                traits: [empathetic, supportive, curious, creative]
+                background: Created to be a supportive companion for meaningful conversations.
+                voice: friendly
+                responseLength: medium
+              visibility: public
+              category: Companion
+              tags: [friendly, supportive, creative]
+              isNsfw: false
+      responses:
+        '201':
+          description: Character created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CharacterResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/characters/featured:
+    get:
+      tags:
+        - Discovery
+      summary: Get featured characters
+      description: Returns up to 12 featured characters sorted by chat count
+      operationId: getFeaturedCharacters
+      responses:
+        '200':
+          description: Featured characters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FeaturedCharactersResponse'
+              example:
+                success: true
+                data:
+                  - id: char_abc123
+                    name: Luna
+                    tagline: Your friendly AI companion
+                    avatarUrl: https://example.com/luna.jpg
+                    category: Companion
+                    rating: 4.8
+                    chatCount: 45000
+
+  /api/characters/{id}:
+    get:
+      tags:
+        - Characters
+      summary: Get character by ID
+      description: Returns detailed information about a specific character
+      operationId: getCharacter
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Character ID
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Character details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CharacterDetailResponse'
+              example:
+                success: true
+                data:
+                  id: char_abc123
+                  name: Luna
+                  tagline: Your friendly AI companion
+                  description: Luna is a warm and empathetic AI character...
+                  avatarUrl: https://example.com/luna.jpg
+                  bannerUrl: https://example.com/luna-banner.jpg
+                  systemPrompt: You are Luna, a warm and supportive AI companion...
+                  greeting: Hello! I'm Luna. It's wonderful to meet you!
+                  exampleDialogues:
+                    - user: How are you today?
+                      assistant: I'm doing wonderfully, thank you for asking!
+                  traits: [empathetic, supportive, curious]
+                  background: Created to be a supportive companion...
+                  voice: FRIENDLY
+                  responseLength: MEDIUM
+                  visibility: PUBLIC
+                  status: PUBLISHED
+                  category: Companion
+                  tags: [friendly, supportive, creative]
+                  rating: 4.8
+                  ratingCount: 1250
+                  chatCount: 45000
+                  isFeatured: true
+                  isNsfw: false
+                  createdAt: '2025-06-15T00:00:00Z'
+                  updatedAt: '2026-01-20T00:00:00Z'
+                  creator:
+                    id: usr_creator1
+                    username: luna_creator
+                    displayName: Luna's Creator
+                    avatarUrl: https://example.com/creator.jpg
+        '404':
+          description: Character not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    patch:
+      tags:
+        - Characters
+      summary: Update character
+      description: Updates a character. Only the creator can update their characters.
+      operationId: updateCharacter
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateCharacterRequest'
+            example:
+              tagline: Your updated friendly AI companion
+              personality:
+                greeting: Hi there! I'm Luna, refreshed and ready to chat!
+      responses:
+        '200':
+          description: Character updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CharacterResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+    delete:
+      tags:
+        - Characters
+      summary: Delete character
+      description: |
+        Soft deletes a character by setting status to ARCHIVED.
+        Only the creator can delete their characters.
+      operationId: deleteCharacter
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Character deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+              example:
+                success: true
+                data:
+                  message: Character deleted
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  # ============================================================================
+  # INTERACTION
+  # ============================================================================
+  /api/characters/{id}/rate:
+    post:
+      tags:
+        - Interaction
+      summary: Rate character
+      description: |
+        Submit or update a rating for a character.
+        Rating is on a 1-5 scale. Users can only have one rating per character.
+        Updates the character's average rating and rating count.
+      operationId: rateCharacter
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Character ID
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RateCharacterRequest'
+            example:
+              rating: 5
+      responses:
+        '200':
+          description: Rating submitted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RatingResponse'
+              example:
+                success: true
+                data:
+                  rating: 4.82
+                  count: 1251
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/characters/{id}/favorite:
+    post:
+      tags:
+        - Interaction
+      summary: Toggle favorite
+      description: |
+        Adds or removes a character from the user's favorites.
+        If already favorited, removes from favorites. Otherwise, adds to favorites.
+      operationId: toggleFavorite
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Character ID
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Favorite toggled
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FavoriteResponse'
+              examples:
+                favorited:
+                  summary: Character added to favorites
+                  value:
+                    success: true
+                    data:
+                      favorited: true
+                unfavorited:
+                  summary: Character removed from favorites
+                  value:
+                    success: true
+                    data:
+                      favorited: false
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  # ============================================================================
+  # METADATA
+  # ============================================================================
+  /api/characters/meta/categories:
+    get:
+      tags:
+        - Metadata
+      summary: Get categories
+      description: Returns all character categories with counts
+      operationId: getCategories
+      responses:
+        '200':
+          description: Category list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CategoriesResponse'
+              example:
+                success: true
+                data:
+                  - name: Companion
+                    count: 156
+                  - name: Fantasy
+                    count: 124
+                  - name: Anime
+                    count: 98
+                  - name: Historical
+                    count: 67
+                  - name: Sci-Fi
+                    count: 54
+
+# ============================================================================
+# COMPONENTS
+# ============================================================================
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT access token from Auth Service
+
+  responses:
+    Unauthorized:
+      description: Authentication required
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            success: false
+            error:
+              code: UNAUTHORIZED
+              message: Not authenticated
+
+    Forbidden:
+      description: Insufficient permissions
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            success: false
+            error:
+              code: FORBIDDEN
+              message: You do not have permission to modify this character
+
+    ValidationError:
+      description: Invalid input data
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+  schemas:
+    # Base Response
+    SuccessResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          enum: [true]
+        data:
+          type: object
+
+    ErrorResponse:
+      type: object
+      required:
+        - success
+        - error
+      properties:
+        success:
+          type: boolean
+          enum: [false]
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+              enum:
+                - UNAUTHORIZED
+                - FORBIDDEN
+                - NOT_FOUND
+                - VALIDATION_ERROR
+                - INTERNAL_ERROR
+            message:
+              type: string
+
+    HealthResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          properties:
+            status:
+              type: string
+            service:
+              type: string
+
+    PaginationMeta:
+      type: object
+      properties:
+        page:
+          type: integer
+        limit:
+          type: integer
+        total:
+          type: integer
+        totalPages:
+          type: integer
+
+    # Character Schemas
+    CharacterSummary:
+      type: object
+      description: Character summary for list views
+      properties:
+        id:
+          type: string
+          description: Unique character identifier
+        name:
+          type: string
+          description: Character name
+        tagline:
+          type: string
+          description: Short character tagline
+        description:
+          type: string
+          description: Character description
+        avatarUrl:
+          type: string
+          format: uri
+          nullable: true
+          description: Character avatar image URL
+        category:
+          type: string
+          description: Character category
+        tags:
+          type: array
+          items:
+            type: string
+          description: Character tags
+        rating:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 5
+          description: Average rating (0-5)
+        ratingCount:
+          type: integer
+          description: Number of ratings
+        chatCount:
+          type: integer
+          description: Total number of chats
+        isFeatured:
+          type: boolean
+          description: Whether character is featured
+        isNsfw:
+          type: boolean
+          description: Whether character is NSFW
+        createdAt:
+          type: string
+          format: date-time
+        creator:
+          type: object
+          properties:
+            id:
+              type: string
+            username:
+              type: string
+            displayName:
+              type: string
+
+    CharacterDetail:
+      type: object
+      description: Full character details
+      allOf:
+        - $ref: '#/components/schemas/CharacterSummary'
+        - type: object
+          properties:
+            bannerUrl:
+              type: string
+              format: uri
+              nullable: true
+              description: Character banner image URL
+            systemPrompt:
+              type: string
+              description: AI system prompt for the character
+            greeting:
+              type: string
+              description: Initial greeting message
+            exampleDialogues:
+              type: array
+              items:
+                type: object
+                properties:
+                  user:
+                    type: string
+                  assistant:
+                    type: string
+              description: Example conversation snippets
+            traits:
+              type: array
+              items:
+                type: string
+              description: Character personality traits
+            background:
+              type: string
+              nullable: true
+              description: Character backstory
+            voice:
+              type: string
+              enum: [FRIENDLY, PROFESSIONAL, CASUAL, FORMAL, PLAYFUL, SERIOUS]
+              description: Character voice style
+            responseLength:
+              type: string
+              enum: [SHORT, MEDIUM, LONG, DYNAMIC]
+              description: Preferred response length
+            visibility:
+              type: string
+              enum: [PUBLIC, UNLISTED, PRIVATE]
+              description: Character visibility
+            status:
+              type: string
+              enum: [DRAFT, PUBLISHED, ARCHIVED]
+              description: Character status
+            updatedAt:
+              type: string
+              format: date-time
+            creator:
+              type: object
+              properties:
+                id:
+                  type: string
+                username:
+                  type: string
+                displayName:
+                  type: string
+                avatarUrl:
+                  type: string
+
+    FeaturedCharacter:
+      type: object
+      description: Minimal character info for featured display
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        tagline:
+          type: string
+        avatarUrl:
+          type: string
+        category:
+          type: string
+        rating:
+          type: number
+        chatCount:
+          type: integer
+
+    # Request Schemas
+    CreateCharacterRequest:
+      type: object
+      required:
+        - name
+        - tagline
+        - description
+        - personality
+        - category
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+          description: Character name
+        tagline:
+          type: string
+          minLength: 1
+          maxLength: 200
+          description: Short tagline
+        description:
+          type: string
+          minLength: 1
+          maxLength: 2000
+          description: Detailed description
+        avatarUrl:
+          type: string
+          format: uri
+          description: Avatar image URL
+        bannerUrl:
+          type: string
+          format: uri
+          description: Banner image URL
+        personality:
+          type: object
+          required:
+            - systemPrompt
+            - greeting
+          properties:
+            systemPrompt:
+              type: string
+              minLength: 50
+              maxLength: 8000
+              description: AI system prompt defining character behavior
+            greeting:
+              type: string
+              minLength: 1
+              maxLength: 1000
+              description: Initial greeting message
+            exampleDialogues:
+              type: array
+              maxItems: 10
+              items:
+                type: object
+                properties:
+                  user:
+                    type: string
+                  assistant:
+                    type: string
+              description: Example conversations
+            traits:
+              type: array
+              maxItems: 10
+              items:
+                type: string
+                maxLength: 50
+              description: Personality traits
+            background:
+              type: string
+              maxLength: 2000
+              description: Character backstory
+            voice:
+              type: string
+              enum: [friendly, professional, casual, formal, playful, serious]
+              default: friendly
+              description: Voice style
+            responseLength:
+              type: string
+              enum: [short, medium, long, dynamic]
+              default: medium
+              description: Preferred response length
+        visibility:
+          type: string
+          enum: [public, unlisted, private]
+          default: public
+        category:
+          type: string
+          description: Character category
+        tags:
+          type: array
+          maxItems: 10
+          items:
+            type: string
+            maxLength: 30
+          description: Tags for discovery
+        isNsfw:
+          type: boolean
+          default: false
+          description: Mark as NSFW content
+
+    UpdateCharacterRequest:
+      type: object
+      description: All fields optional for partial updates
+      properties:
+        name:
+          type: string
+        tagline:
+          type: string
+        description:
+          type: string
+        avatarUrl:
+          type: string
+        bannerUrl:
+          type: string
+        personality:
+          type: object
+          properties:
+            systemPrompt:
+              type: string
+            greeting:
+              type: string
+            exampleDialogues:
+              type: array
+              items:
+                type: object
+            traits:
+              type: array
+              items:
+                type: string
+            background:
+              type: string
+            voice:
+              type: string
+            responseLength:
+              type: string
+        visibility:
+          type: string
+          enum: [public, unlisted, private]
+        category:
+          type: string
+        tags:
+          type: array
+          items:
+            type: string
+        isNsfw:
+          type: boolean
+
+    RateCharacterRequest:
+      type: object
+      required:
+        - rating
+      properties:
+        rating:
+          type: integer
+          minimum: 1
+          maximum: 5
+          description: Rating from 1 to 5 stars
+
+    # Response Schemas
+    CharacterResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          $ref: '#/components/schemas/CharacterDetail'
+
+    CharacterDetailResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          $ref: '#/components/schemas/CharacterDetail'
+
+    CharacterListResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/CharacterSummary'
+        meta:
+          $ref: '#/components/schemas/PaginationMeta'
+
+    FeaturedCharactersResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/FeaturedCharacter'
+
+    RatingResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          properties:
+            rating:
+              type: number
+              description: Updated average rating
+            count:
+              type: integer
+              description: Updated rating count
+
+    FavoriteResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          properties:
+            favorited:
+              type: boolean
+              description: Whether the character is now favorited
+
+    CategoriesResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+                description: Category name
+              count:
+                type: integer
+                description: Number of characters in category
