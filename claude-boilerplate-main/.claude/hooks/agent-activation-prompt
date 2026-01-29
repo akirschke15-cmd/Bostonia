@@ -1,0 +1,260 @@
+#!/usr/bin/env bash
+# Hook: agent-activation-prompt
+# Type: UserPromptSubmit
+# Description: Automatically suggests and activates relevant agents based on user prompts
+
+# This hook analyzes the user's prompt to intelligently suggest appropriate specialist agents
+# It uses agent-rules.json to match triggers and inject agent context into the conversation
+
+set -euo pipefail
+
+# Cross-platform utility finder that doesn't rely on PATH
+# Searches common installation locations across Linux, macOS, and Windows (Git Bash)
+find_utility() {
+    local util_name=$1
+    local common_paths=(
+        "/usr/bin/${util_name}"              # Linux standard
+        "/bin/${util_name}"                  # Linux alternative
+        "/usr/local/bin/${util_name}"        # macOS Intel / Linux manual installs
+        "/opt/homebrew/bin/${util_name}"     # macOS Apple Silicon
+        "/mingw64/bin/${util_name}.exe"      # Windows Git Bash
+        "/usr/bin/${util_name}.exe"          # Windows Git Bash alternative
+        "/c/ProgramData/chocolatey/bin/${util_name}.exe"  # Windows Chocolatey
+    )
+
+    for path in "${common_paths[@]}"; do
+        if [[ -x "$path" ]]; then
+            echo "$path"
+            return 0
+        fi
+    done
+
+    return 1
+}
+
+# Find all required utilities
+CAT=$(find_utility "cat") || cat  # cat is needed first, so use builtin as fallback
+JQ=$(find_utility "jq") || { $CAT; exit 0; }
+GREP=$(find_utility "grep") || { $CAT; exit 0; }
+TR=$(find_utility "tr") || { $CAT; exit 0; }
+AWK=$(find_utility "awk") || { $CAT; exit 0; }
+SED=$(find_utility "sed") || { $CAT; exit 0; }
+FIND=$(find_utility "find") || { $CAT; exit 0; }
+HEAD=$(find_utility "head") || { $CAT; exit 0; }
+SORT=$(find_utility "sort") || { $CAT; exit 0; }
+CUT=$(find_utility "cut") || { $CAT; exit 0; }
+GIT=$(find_utility "git") || { $CAT; exit 0; }
+
+# Read the input from stdin (could be JSON or raw text)
+INPUT=$($CAT)
+
+# Try to parse as JSON to extract prompt field
+# If JSON parsing fails, treat the entire input as the prompt
+if USER_PROMPT=$(echo "$INPUT" | $JQ -r '.prompt' 2>/dev/null) && [[ -n "$USER_PROMPT" ]] && [[ "$USER_PROMPT" != "null" ]]; then
+    # Successfully extracted prompt from JSON
+    :
+else
+    # Fallback: treat entire input as prompt (for backward compatibility)
+    USER_PROMPT="$INPUT"
+fi
+
+# Configuration
+AGENT_RULES_FILE=".claude/agents/agent-rules.json"
+
+# Exit if no agent rules file
+if [[ ! -f "$AGENT_RULES_FILE" ]]; then
+    echo "$USER_PROMPT"
+    exit 0
+fi
+
+# Read configuration from agent-rules.json
+MAX_AGENTS=$($JQ -r '.globalSettings.maxActiveAgents // 2' "$AGENT_RULES_FILE")
+CONFIDENCE_THRESHOLD=$($JQ -r '.globalSettings.confidenceThreshold // 0.7' "$AGENT_RULES_FILE")
+
+# Calculate minimum score based on confidence threshold
+# Using awk for floating point calculation (threshold * 20 = score out of ~100)
+MIN_SCORE=$($AWK -v threshold="$CONFIDENCE_THRESHOLD" 'BEGIN { printf "%d", threshold * 20 }')
+if [[ -z "$MIN_SCORE" || "$MIN_SCORE" -le 0 ]]; then
+    MIN_SCORE=14  # Fallback to default
+fi
+
+# Get current working directory context
+CURRENT_FILES=$($FIND . -maxdepth 3 -type f 2>/dev/null | $HEAD -30 || echo "")
+CHANGED_FILES=$($GIT diff --name-only 2>/dev/null || echo "")
+
+# Normalize file paths by stripping leading "./" and trimming whitespace
+# This ensures file paths match agent filePatterns which are repo-relative
+CURRENT_FILES=$(echo "$CURRENT_FILES" | $SED 's|^\./||' | $SED 's/^[[:space:]]*//;s/[[:space:]]*$//' | $GREP -v '^$' || echo "")
+CHANGED_FILES=$(echo "$CHANGED_FILES" | $SED 's|^\./||' | $SED 's/^[[:space:]]*//;s/[[:space:]]*$//' | $GREP -v '^$' || echo "")
+
+# Convert prompt to lowercase for case-insensitive matching
+PROMPT_LOWER=$(echo "$USER_PROMPT" | $TR '[:upper:]' '[:lower:]')
+
+# Array to store matched agents with scores
+declare -A AGENT_SCORES
+declare -A AGENT_NAMES
+declare -A AGENT_PATHS
+declare -A AGENT_DESCRIPTIONS
+
+# Read agent count from JSON
+AGENT_COUNT=$($JQ '.agents | length' "$AGENT_RULES_FILE")
+
+# Iterate through each agent
+for ((i=0; i<AGENT_COUNT; i++)); do
+    AGENT=$($JQ -r ".agents[$i]" "$AGENT_RULES_FILE")
+
+    # Extract agent details
+    NAME=$(echo "$AGENT" | $JQ -r '.name')
+    PATH=$(echo "$AGENT" | $JQ -r '.path')
+    DESC=$(echo "$AGENT" | $JQ -r '.description')
+    AUTO_ACTIVATE=$(echo "$AGENT" | $JQ -r '.autoActivate')
+    PRIORITY=$(echo "$AGENT" | $JQ -r '.priority')
+
+    # Skip if auto-activation is disabled
+    if [[ "$AUTO_ACTIVATE" != "true" ]]; then
+        continue
+    fi
+
+    # Calculate match score
+    SCORE=0
+
+    # Check keywords
+    KEYWORDS=$(echo "$AGENT" | $JQ -r '.triggers.keywords[]?' 2>/dev/null || echo "")
+    while IFS= read -r keyword; do
+        if [[ -n "$keyword" ]] && echo "$PROMPT_LOWER" | $GREP -qi "\b$(echo "$keyword" | $TR '[:upper:]' '[:lower:]')\b"; then
+            case "$PRIORITY" in
+                critical) SCORE=$((SCORE + 15)) ;;
+                high)     SCORE=$((SCORE + 10)) ;;
+                medium)   SCORE=$((SCORE + 7)) ;;
+                *)        SCORE=$((SCORE + 5)) ;;
+            esac
+        fi
+    done <<< "$KEYWORDS"
+
+    # Check phrases (higher weight)
+    PHRASES=$(echo "$AGENT" | $JQ -r '.triggers.phrases[]?' 2>/dev/null || echo "")
+    while IFS= read -r phrase; do
+        if [[ -n "$phrase" ]] && echo "$PROMPT_LOWER" | $GREP -qi "$(echo "$phrase" | $TR '[:upper:]' '[:lower:]')"; then
+            case "$PRIORITY" in
+                critical) SCORE=$((SCORE + 25)) ;;
+                high)     SCORE=$((SCORE + 20)) ;;
+                medium)   SCORE=$((SCORE + 15)) ;;
+                *)        SCORE=$((SCORE + 10)) ;;
+            esac
+        fi
+    done <<< "$PHRASES"
+
+    # Check file patterns using Bash native glob matching
+    FILE_PATTERNS=$(echo "$AGENT" | $JQ -r '.triggers.filePatterns[]?' 2>/dev/null || echo "")
+
+    # Enable extended globbing for ** support
+    shopt -s globstar nullglob 2>/dev/null || true
+
+    while IFS= read -r pattern; do
+        if [[ -n "$pattern" ]]; then
+            PATTERN_MATCHED=false
+
+            # Check against current files
+            while IFS= read -r file; do
+                if [[ -n "$file" ]] && [[ "$file" == $pattern ]]; then
+                    SCORE=$((SCORE + 8))
+                    PATTERN_MATCHED=true
+                    break  # Found a match, no need to check more files for this pattern
+                fi
+            done <<< "$CURRENT_FILES"
+
+            # Check against changed files if no match yet
+            if [[ "$PATTERN_MATCHED" == "false" ]]; then
+                while IFS= read -r file; do
+                    if [[ -n "$file" ]] && [[ "$file" == $pattern ]]; then
+                        SCORE=$((SCORE + 8))
+                        break
+                    fi
+                done <<< "$CHANGED_FILES"
+            fi
+        fi
+    done <<< "$FILE_PATTERNS"
+
+    # Check anti-patterns (reduce score)
+    ANTI_PATTERNS=$(echo "$AGENT" | $JQ -r '.triggers.antiPatterns[]?' 2>/dev/null || echo "")
+    while IFS= read -r antipattern; do
+        if [[ -n "$antipattern" ]] && echo "$PROMPT_LOWER" | $GREP -qi "\b$(echo "$antipattern" | $TR '[:upper:]' '[:lower:]')\b"; then
+            SCORE=$((SCORE - 10))
+        fi
+    done <<< "$ANTI_PATTERNS"
+
+    # Store agent info if score is positive
+    if [[ $SCORE -gt 0 ]]; then
+        AGENT_SCORES[$NAME]=$SCORE
+        AGENT_NAMES[$NAME]=$NAME
+        AGENT_PATHS[$NAME]=$PATH
+        AGENT_DESCRIPTIONS[$NAME]=$DESC
+    fi
+done
+
+# Sort agents by score and select top matches
+SORTED_AGENTS=$(
+    for name in "${!AGENT_SCORES[@]}"; do
+        echo "${AGENT_SCORES[$name]} $name"
+    done | $SORT -rn | $HEAD -n "$MAX_AGENTS"
+)
+
+# Build matched agents array
+MATCHED_AGENTS=()
+MATCHED_PATHS=()
+MATCHED_DESCRIPTIONS=()
+
+while IFS= read -r line; do
+    if [[ -n "$line" ]]; then
+        SCORE=$(echo "$line" | $AWK '{print $1}')
+        NAME=$(echo "$line" | $CUT -d' ' -f2-)
+
+        # Only include if score meets threshold
+        if [[ $SCORE -ge $MIN_SCORE ]]; then
+            MATCHED_AGENTS+=("$NAME")
+            MATCHED_PATHS+=("${AGENT_PATHS[$NAME]}")
+            MATCHED_DESCRIPTIONS+=("${AGENT_DESCRIPTIONS[$NAME]}")
+        fi
+    fi
+done <<< "$SORTED_AGENTS"
+
+# Output the original prompt
+echo "$USER_PROMPT"
+
+# If we have matched agents, inject context
+if [[ ${#MATCHED_AGENTS[@]} -gt 0 ]]; then
+    echo ""
+    echo "---"
+    echo ""
+    echo "🎯 **Auto-Activated Agents** (based on your request):"
+    echo ""
+
+    for idx in "${!MATCHED_AGENTS[@]}"; do
+        AGENT_NAME="${MATCHED_AGENTS[$idx]}"
+        AGENT_DESC="${MATCHED_DESCRIPTIONS[$idx]}"
+        AGENT_PATH="${MATCHED_PATHS[$idx]}"
+
+        # Output only agent name and description - NOT full content
+        # Full agent context is loaded by Task tool when subagent is spawned
+        # This reduces context bloat on every message (was adding 15-30KB per agent)
+        echo "- **${AGENT_NAME}**: ${AGENT_DESC}"
+    done
+
+    echo "---"
+    echo ""
+    echo "⚠️ **MANDATORY DIRECTIVE FOR CLAUDE**:"
+    echo ""
+    echo "For **complex, multi-step tasks** (requiring exploration, implementation, or substantial work):"
+    echo "- **YOU MUST use the Task tool** to launch the agent(s) listed above"
+    echo "- **Use the EXACT agent name** from above (e.g., Task(subagent_type=\"${MATCHED_AGENTS[0]}\", ...))"
+    echo "- **DO NOT substitute** with Explore, Plan, or any other agent"
+    echo "- **Announce**: \"I'll launch the [agent-name] agent to handle this...\""
+    echo ""
+    echo "For **simple, quick tasks** (single file changes, quick answers):"
+    echo "- Follow the agent context silently (no Task tool needed)"
+    echo ""
+    echo "**Reference**: See .claude/docs/HYBRID_AGENT_STRATEGY.md for complete decision matrix"
+    echo ""
+fi
+
+exit 0

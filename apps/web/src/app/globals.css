@@ -1,0 +1,130 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Astral/Space Theme - Light mode still has cosmic feel */
+    --background: 15 10 30;
+    --foreground: 226 232 255;
+    --card: 20 15 45;
+    --card-foreground: 226 232 255;
+    --primary: 139 92 246;
+    --primary-foreground: 255 255 255;
+    --secondary: 30 20 60;
+    --secondary-foreground: 200 210 255;
+    --muted: 25 18 50;
+    --muted-foreground: 148 163 200;
+    --accent: 236 72 153;
+    --accent-foreground: 255 255 255;
+    --destructive: 239 68 68;
+    --destructive-foreground: 255 255 255;
+    --border: 55 40 100;
+    --input: 35 25 70;
+    --ring: 139 92 246;
+
+    /* Cosmic gradients */
+    --nebula-1: 139 92 246;
+    --nebula-2: 236 72 153;
+    --nebula-3: 6 182 212;
+    --star: 255 255 255;
+  }
+
+  .dark {
+    --background: 8 5 20;
+    --foreground: 230 235 255;
+    --card: 15 10 35;
+    --card-foreground: 230 235 255;
+    --primary: 167 139 250;
+    --primary-foreground: 10 5 20;
+    --secondary: 25 18 50;
+    --secondary-foreground: 220 225 255;
+    --muted: 20 15 40;
+    --muted-foreground: 148 163 200;
+    --accent: 244 114 182;
+    --accent-foreground: 10 5 20;
+    --destructive: 220 38 38;
+    --destructive-foreground: 255 255 255;
+    --border: 45 35 80;
+    --input: 30 22 55;
+    --ring: 167 139 250;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-space-700;
+  }
+  body {
+    @apply bg-space-950 text-space-100;
+    background-image:
+      radial-gradient(ellipse at 20% 20%, rgba(139, 92, 246, 0.15) 0%, transparent 50%),
+      radial-gradient(ellipse at 80% 80%, rgba(236, 72, 153, 0.1) 0%, transparent 50%),
+      radial-gradient(ellipse at 50% 50%, rgba(6, 182, 212, 0.05) 0%, transparent 70%);
+    background-attachment: fixed;
+    min-height: 100vh;
+  }
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  @apply bg-space-900;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply bg-space-600 rounded-full;
+  background: linear-gradient(180deg, rgb(139, 92, 246) 0%, rgb(236, 72, 153) 100%);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-space-500;
+}
+
+/* Starfield effect for special sections */
+.starfield {
+  position: relative;
+}
+
+.starfield::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image:
+    radial-gradient(1px 1px at 20px 30px, white, transparent),
+    radial-gradient(1px 1px at 40px 70px, rgba(255,255,255,0.8), transparent),
+    radial-gradient(1px 1px at 50px 160px, rgba(255,255,255,0.6), transparent),
+    radial-gradient(1px 1px at 90px 40px, white, transparent),
+    radial-gradient(1px 1px at 130px 80px, rgba(255,255,255,0.7), transparent),
+    radial-gradient(1.5px 1.5px at 160px 120px, white, transparent),
+    radial-gradient(1px 1px at 200px 50px, rgba(255,255,255,0.5), transparent);
+  background-repeat: repeat;
+  background-size: 250px 250px;
+  pointer-events: none;
+  opacity: 0.5;
+}
+
+/* Glowing text effect */
+.glow {
+  text-shadow: 0 0 10px rgba(139, 92, 246, 0.5), 0 0 20px rgba(139, 92, 246, 0.3);
+}
+
+.glow-pink {
+  text-shadow: 0 0 10px rgba(236, 72, 153, 0.5), 0 0 20px rgba(236, 72, 153, 0.3);
+}
+
+/* Cosmic card effect */
+.cosmic-card {
+  background: linear-gradient(135deg, rgba(30, 20, 60, 0.8) 0%, rgba(15, 10, 35, 0.9) 100%);
+  border: 1px solid rgba(139, 92, 246, 0.2);
+  backdrop-filter: blur(10px);
+}
+
+.cosmic-card:hover {
+  border-color: rgba(139, 92, 246, 0.4);
+  box-shadow: 0 0 30px rgba(139, 92, 246, 0.15);
+}

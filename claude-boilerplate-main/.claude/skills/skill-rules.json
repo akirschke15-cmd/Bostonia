@@ -1,0 +1,160 @@
+{
+  "skills": [
+    {
+      "name": "python-development",
+      "description": "Python development best practices, frameworks, testing, and tooling",
+      "triggers": {
+        "filePatterns": [
+          "**/*.py",
+          "**/pyproject.toml",
+          "**/setup.py",
+          "**/requirements.txt",
+          "**/Pipfile",
+          "**/poetry.lock"
+        ],
+        "keywords": [
+          "python",
+          "pip",
+          "pytest",
+          "django",
+          "flask",
+          "fastapi",
+          "pandas",
+          "numpy",
+          "pydantic",
+          "virtualenv",
+          "poetry"
+        ],
+        "contexts": [
+          "python code",
+          "python application",
+          "python script",
+          "python api",
+          "python testing"
+        ]
+      },
+      "autoActivate": true,
+      "priority": "high"
+    },
+    {
+      "name": "typescript-development",
+      "description": "TypeScript/JavaScript development, frameworks, testing, and build tools",
+      "triggers": {
+        "filePatterns": [
+          "**/*.ts",
+          "**/*.tsx",
+          "**/*.js",
+          "**/*.jsx",
+          "**/package.json",
+          "**/tsconfig.json",
+          "**/vite.config.ts",
+          "**/next.config.js"
+        ],
+        "keywords": [
+          "typescript",
+          "javascript",
+          "node",
+          "react",
+          "vue",
+          "angular",
+          "next.js",
+          "express",
+          "nestjs",
+          "jest",
+          "vitest",
+          "npm",
+          "pnpm",
+          "yarn"
+        ],
+        "contexts": [
+          "typescript code",
+          "javascript code",
+          "frontend application",
+          "react component",
+          "node.js api",
+          "typescript testing"
+        ]
+      },
+      "autoActivate": true,
+      "priority": "high"
+    },
+    {
+      "name": "terraform-infrastructure",
+      "description": "Terraform infrastructure as code, cloud provisioning, and DevOps best practices",
+      "triggers": {
+        "filePatterns": [
+          "**/*.tf",
+          "**/*.tfvars",
+          "**/terraform.tfstate",
+          "**/.terraform.lock.hcl"
+        ],
+        "keywords": [
+          "terraform",
+          "infrastructure",
+          "aws",
+          "azure",
+          "gcp",
+          "cloud",
+          "iac",
+          "provisioning",
+          "tfvars",
+          "state file"
+        ],
+        "contexts": [
+          "terraform code",
+          "infrastructure as code",
+          "cloud infrastructure",
+          "terraform module",
+          "terraform configuration"
+        ]
+      },
+      "autoActivate": true,
+      "priority": "high"
+    },
+    {
+      "name": "testing-best-practices",
+      "description": "Testing strategies, test automation, and quality assurance across all languages",
+      "triggers": {
+        "filePatterns": [
+          "**/*test*.py",
+          "**/*test*.ts",
+          "**/*test*.js",
+          "**/*spec*.ts",
+          "**/*spec*.js",
+          "**/jest.config.*",
+          "**/pytest.ini",
+          "**/vitest.config.*"
+        ],
+        "keywords": [
+          "test",
+          "testing",
+          "unit test",
+          "integration test",
+          "e2e test",
+          "jest",
+          "pytest",
+          "vitest",
+          "playwright",
+          "cypress",
+          "test coverage",
+          "mocking",
+          "fixture"
+        ],
+        "contexts": [
+          "writing tests",
+          "test suite",
+          "test coverage",
+          "testing strategy",
+          "test automation"
+        ]
+      },
+      "autoActivate": true,
+      "priority": "medium"
+    }
+  ],
+  "globalSettings": {
+    "maxActiveSkills": 4,
+    "confidenceThreshold": 0.6,
+    "suggestionMode": "auto"
+  }
+}

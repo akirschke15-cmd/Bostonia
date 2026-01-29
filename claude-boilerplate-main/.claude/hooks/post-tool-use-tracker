@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+# Hook: post-tool-use-tracker
+# Type: PostToolUse
+# Description: Tracks tool usage and provides helpful reminders
+
+set -euo pipefail
+
+# Read tool use information from environment
+TOOL_NAME="${TOOL_NAME:-unknown}"
+TOOL_DURATION="${TOOL_DURATION:-0}"
+
+# Log directory
+LOG_DIR=".claude/logs"
+mkdir -p "$LOG_DIR"
+
+# Log tool usage
+TIMESTAMP=$(date +"%Y-%m-%d %H:%M:%S")
+echo "[$TIMESTAMP] Tool: $TOOL_NAME, Duration: ${TOOL_DURATION}ms" >> "$LOG_DIR/tool-usage.log"
+
+# Provide contextual hints based on tool usage patterns
+
+case "$TOOL_NAME" in
+    "Write"|"Edit")
+        # After file modifications, remind about testing
+        if [[ -f "package.json" ]] && command -v npm &> /dev/null; then
+            if [[ ! -f ".claude/.test-reminder-shown" ]]; then
+                echo ""
+                echo "💡 Reminder: Consider running tests after code changes:"
+                echo "   npm test"
+                touch ".claude/.test-reminder-shown"
+            fi
+        elif [[ -f "pyproject.toml" ]] || [[ -f "pytest.ini" ]]; then
+            if [[ ! -f ".claude/.test-reminder-shown" ]]; then
+                echo ""
+                echo "💡 Reminder: Consider running tests after code changes:"
+                echo "   pytest"
+                touch ".claude/.test-reminder-shown"
+            fi
+        fi
+        ;;
+
+    "Bash")
+        # Track command patterns
+        ;;
+
+    "Task")
+        # Track agent usage
+        ;;
+esac
+
+# Clean up old reminder flags (reset daily)
+find .claude -name ".test-reminder-shown" -mtime +1 -delete 2>/dev/null || true
+
+exit 0

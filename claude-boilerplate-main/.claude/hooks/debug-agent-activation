@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# Debug version of agent activation hook
+# Logs everything to help diagnose issues
+
+LOG_FILE="/tmp/claude-hook-debug.log"
+
+{
+    echo "=== Hook Execution $(date) ==="
+    echo "PWD: $(pwd)"
+    echo "USER: $(whoami)"
+    echo "Input received:"
+
+    # Read stdin
+    INPUT=$(cat)
+    echo "$INPUT"
+
+    echo "---"
+    echo "Calling main hook..."
+
+    # Call the actual hook
+    echo "$INPUT" | .claude/hooks/agent-activation-prompt 2>&1
+
+    echo "=== End Hook Execution ==="
+} >> "$LOG_FILE" 2>&1
+
+# Also output the result
+echo "$INPUT" | .claude/hooks/agent-activation-prompt 2>&1

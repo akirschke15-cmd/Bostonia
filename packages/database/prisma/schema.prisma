@@ -1,0 +1,461 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================================
+// USER MANAGEMENT
+// ============================================================================
+
+model User {
+  id                   String    @id @default(uuid())
+  email                String    @unique
+  passwordHash         String?
+  username             String    @unique
+  displayName          String?
+  avatarUrl            String?
+  bio                  String?
+  role                 UserRole  @default(USER)
+  status               UserStatus @default(ACTIVE)
+  credits              Int       @default(100)
+  subscriptionTier     SubscriptionTier @default(FREE)
+  subscriptionExpiresAt DateTime?
+  emailVerified        Boolean   @default(false)
+  emailVerifiedAt      DateTime?
+  lastLoginAt          DateTime?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  // Relations
+  preferences          UserPreferences?
+  oauthAccounts        OAuthAccount[]
+  characters           Character[]
+  conversations        Conversation[]
+  favorites            Favorite[]
+  ratings              CharacterRating[]
+  subscriptions        Subscription[]
+  creditTransactions   CreditTransaction[]
+  refreshTokens        RefreshToken[]
+
+  @@index([email])
+  @@index([username])
+  @@index([status])
+  @@index([subscriptionTier])
+}
+
+enum UserRole {
+  USER
+  CREATOR
+  MODERATOR
+  ADMIN
+}
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+  DELETED
+}
+
+enum SubscriptionTier {
+  FREE
+  BASIC
+  PREMIUM
+  UNLIMITED
+}
+
+model UserPreferences {
+  id                   String    @id @default(uuid())
+  userId               String    @unique
+  theme                Theme     @default(SYSTEM)
+  language             String    @default("en")
+  notificationsEnabled Boolean   @default(true)
+  emailNotifications   Boolean   @default(true)
+  defaultChatMode      ChatMode  @default(STANDARD)
+  contentFilter        ContentFilterLevel @default(MODERATE)
+  autoSaveConversations Boolean  @default(true)
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  user                 User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+enum Theme {
+  LIGHT
+  DARK
+  SYSTEM
+}
+
+enum ContentFilterLevel {
+  STRICT
+  MODERATE
+  RELAXED
+}
+
+model OAuthAccount {
+  id                   String    @id @default(uuid())
+  userId               String
+  provider             OAuthProvider
+  providerAccountId    String
+  accessToken          String?
+  refreshToken         String?
+  expiresAt            DateTime?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  user                 User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+}
+
+enum OAuthProvider {
+  GOOGLE
+  DISCORD
+  GITHUB
+}
+
+model RefreshToken {
+  id                   String    @id @default(uuid())
+  userId               String
+  token                String    @unique
+  expiresAt            DateTime
+  isRevoked            Boolean   @default(false)
+  userAgent            String?
+  ipAddress            String?
+  createdAt            DateTime  @default(now())
+
+  user                 User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([token])
+  @@index([expiresAt])
+}
+
+// ============================================================================
+// CHARACTER MANAGEMENT
+// ============================================================================
+
+model Character {
+  id                   String    @id @default(uuid())
+  creatorId            String
+  name                 String
+  tagline              String
+  description          String
+  avatarUrl            String?
+  bannerUrl            String?
+  systemPrompt         String
+  greeting             String
+  exampleDialogues     Json      @default("[]")
+  traits               String[]  @default([])
+  background           String    @default("")
+  voice                VoiceStyle @default(CASUAL)
+  responseLength       ResponseLength @default(MEDIUM)
+  visibility           CharacterVisibility @default(PRIVATE)
+  category             String
+  tags                 String[]  @default([])
+  rating               Float     @default(0)
+  ratingCount          Int       @default(0)
+  chatCount            Int       @default(0)
+  messageCount         Int       @default(0)
+  isFeatured           Boolean   @default(false)
+  isNsfw               Boolean   @default(false)
+  status               CharacterStatus @default(DRAFT)
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  // Relations
+  creator              User      @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+  conversations        Conversation[]
+  favorites            Favorite[]
+  ratings              CharacterRating[]
+
+  @@index([creatorId])
+  @@index([status, visibility])
+  @@index([category])
+  @@index([isFeatured])
+  @@index([rating])
+  @@index([chatCount])
+  @@index([createdAt])
+}
+
+enum VoiceStyle {
+  FORMAL
+  CASUAL
+  PLAYFUL
+  SERIOUS
+  POETIC
+  TECHNICAL
+}
+
+enum ResponseLength {
+  SHORT
+  MEDIUM
+  LONG
+  VARIABLE
+}
+
+enum CharacterVisibility {
+  PUBLIC
+  UNLISTED
+  PRIVATE
+}
+
+enum CharacterStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+  BANNED
+}
+
+model CharacterRating {
+  id                   String    @id @default(uuid())
+  userId               String
+  characterId          String
+  rating               Int       // 1-5
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  user                 User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  character            Character @relation(fields: [characterId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, characterId])
+  @@index([characterId])
+}
+
+model Favorite {
+  id                   String    @id @default(uuid())
+  userId               String
+  characterId          String
+  createdAt            DateTime  @default(now())
+
+  user                 User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  character            Character @relation(fields: [characterId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, characterId])
+  @@index([userId])
+  @@index([characterId])
+}
+
+// ============================================================================
+// CONVERSATION & MESSAGING
+// ============================================================================
+
+model Conversation {
+  id                   String    @id @default(uuid())
+  userId               String
+  characterId          String
+  title                String?
+  mode                 ChatMode  @default(STANDARD)
+  status               ConversationStatus @default(ACTIVE)
+  messageCount         Int       @default(0)
+  lastMessageAt        DateTime?
+  parentConversationId String?
+  branchPointMessageId String?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  // Relations
+  user                 User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  character            Character @relation(fields: [characterId], references: [id], onDelete: Cascade)
+  messages             Message[]
+  memories             MemoryEntry[]
+  parentConversation   Conversation? @relation("ConversationBranches", fields: [parentConversationId], references: [id])
+  branchedConversations Conversation[] @relation("ConversationBranches")
+  branchPointMessage   Message?  @relation("BranchPoint", fields: [branchPointMessageId], references: [id])
+
+  @@index([userId])
+  @@index([characterId])
+  @@index([status])
+  @@index([lastMessageAt])
+  @@index([createdAt])
+}
+
+enum ChatMode {
+  STANDARD
+  ROLEPLAY
+  ADVENTURE
+  CREATIVE
+}
+
+enum ConversationStatus {
+  ACTIVE
+  ARCHIVED
+  DELETED
+}
+
+model Message {
+  id                   String    @id @default(uuid())
+  conversationId       String
+  role                 MessageRole
+  content              String
+  tokenCount           Int       @default(0)
+  isEdited             Boolean   @default(false)
+  isRegenerated        Boolean   @default(false)
+  parentMessageId      String?
+  metadata             Json?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  // Relations
+  conversation         Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  parentMessage        Message?  @relation("MessageReplies", fields: [parentMessageId], references: [id])
+  replies              Message[] @relation("MessageReplies")
+  branchedConversations Conversation[] @relation("BranchPoint")
+
+  @@index([conversationId])
+  @@index([createdAt])
+  @@index([role])
+}
+
+enum MessageRole {
+  USER
+  ASSISTANT
+  SYSTEM
+}
+
+// ============================================================================
+// MEMORY SYSTEM
+// ============================================================================
+
+model MemoryEntry {
+  id                   String    @id @default(uuid())
+  conversationId       String
+  type                 MemoryType
+  content              String
+  importance           Float     @default(0.5)
+  embedding            Float[]   @default([])
+  createdAt            DateTime  @default(now())
+  expiresAt            DateTime?
+
+  conversation         Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId])
+  @@index([type])
+  @@index([importance])
+  @@index([expiresAt])
+}
+
+enum MemoryType {
+  FACT
+  PREFERENCE
+  EVENT
+  RELATIONSHIP
+  SUMMARY
+}
+
+// ============================================================================
+// PAYMENT & SUBSCRIPTION
+// ============================================================================
+
+model Subscription {
+  id                   String    @id @default(uuid())
+  userId               String
+  tier                 SubscriptionTier
+  status               SubscriptionStatus @default(ACTIVE)
+  stripeCustomerId     String
+  stripeSubscriptionId String    @unique
+  stripePriceId        String
+  currentPeriodStart   DateTime
+  currentPeriodEnd     DateTime
+  cancelAtPeriodEnd    Boolean   @default(false)
+  canceledAt           DateTime?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  user                 User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([stripeCustomerId])
+  @@index([status])
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  PAST_DUE
+  CANCELED
+  INCOMPLETE
+  TRIALING
+}
+
+model CreditTransaction {
+  id                   String    @id @default(uuid())
+  userId               String
+  type                 CreditTransactionType
+  amount               Int
+  balance              Int
+  description          String
+  referenceId          String?
+  metadata             Json?
+  createdAt            DateTime  @default(now())
+
+  user                 User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([type])
+  @@index([createdAt])
+}
+
+enum CreditTransactionType {
+  PURCHASE
+  USAGE
+  REFUND
+  BONUS
+  SUBSCRIPTION
+}
+
+// ============================================================================
+// CONTENT MODERATION
+// ============================================================================
+
+model ModerationLog {
+  id                   String    @id @default(uuid())
+  contentType          ModerationContentType
+  contentId            String
+  userId               String?
+  action               ModerationAction
+  reason               String?
+  flags                Json?
+  score                Float?
+  reviewedBy           String?
+  reviewedAt           DateTime?
+  createdAt            DateTime  @default(now())
+
+  @@index([contentType, contentId])
+  @@index([userId])
+  @@index([action])
+  @@index([createdAt])
+}
+
+enum ModerationContentType {
+  MESSAGE
+  CHARACTER
+  USER_PROFILE
+}
+
+enum ModerationAction {
+  APPROVED
+  FLAGGED
+  BLOCKED
+  DELETED
+  PENDING_REVIEW
+}
+
+// ============================================================================
+// ANALYTICS (Basic)
+// ============================================================================
+
+model UsageMetric {
+  id                   String    @id @default(uuid())
+  userId               String?
+  eventType            String
+  eventData            Json?
+  createdAt            DateTime  @default(now())
+
+  @@index([userId])
+  @@index([eventType])
+  @@index([createdAt])
+}

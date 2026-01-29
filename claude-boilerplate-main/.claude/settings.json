@@ -1,0 +1,138 @@
+{
+  "customInstructions": "CRITICAL: When you see '🎯 Auto-Activated Agents' in system reminders, you MUST use the Task tool to launch that exact agent for complex tasks. Never substitute with Explore/Plan or work directly. See .claude/docs/HYBRID_AGENT_STRATEGY.md for details.",
+  "skills": {
+    "enabled": true,
+    "autoActivate": true,
+    "maxActive": 4,
+    "permissions": {
+      "python-development": {
+        "autoLoad": true,
+        "allowedPaths": ["**/*.py", "**/pyproject.toml", "**/requirements.txt"]
+      },
+      "typescript-development": {
+        "autoLoad": true,
+        "allowedPaths": ["**/*.ts", "**/*.tsx", "**/*.js", "**/*.jsx", "**/package.json"]
+      },
+      "terraform-infrastructure": {
+        "autoLoad": true,
+        "allowedPaths": ["**/*.tf", "**/*.tfvars", "**/.terraform/**"]
+      },
+      "testing-best-practices": {
+        "autoLoad": true,
+        "allowedPaths": ["**/*test*.py", "**/*test*.ts", "**/*spec*.ts", "**/*spec*.js"]
+      }
+    }
+  },
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/agent-activation-prompt"
+          },
+          {
+            "type": "command",
+            "command": ".claude/hooks/skill-activation-prompt"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matchers": [
+          {
+            "patterns": ["*"]
+          }
+        ],
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/post-tool-use-tracker"
+          }
+        ]
+      }
+    ]
+  },
+  "agents": {
+    "searchPaths": [
+      ".claude/agents/01-language-specialists",
+      ".claude/agents/02-role-specialists",
+      ".claude/agents/03-architecture",
+      ".claude/agents/04-quality",
+      ".claude/agents/05-infrastructure",
+      ".claude/agents/06-documentation",
+      ".claude/agents/07-troubleshooting"
+    ],
+    "autoSuggest": true
+  },
+  "codeReview": {
+    "enabled": true,
+    "autoTrigger": false,
+    "checklist": [
+      "Type safety and type hints",
+      "Error handling",
+      "Security considerations",
+      "Test coverage",
+      "Documentation",
+      "Performance implications"
+    ]
+  },
+  "testing": {
+    "autoRunOnSave": false,
+    "frameworks": {
+      "python": "pytest",
+      "typescript": "vitest",
+      "javascript": "jest"
+    }
+  },
+  "formatting": {
+    "autoFormatOnSave": false,
+    "tools": {
+      "python": "ruff",
+      "typescript": "prettier",
+      "javascript": "prettier",
+      "terraform": "terraform fmt"
+    }
+  },
+  "security": {
+    "scanOnCommit": true,
+    "preventSecretsCommit": true,
+    "tools": {
+      "python": ["bandit", "safety"],
+      "typescript": ["npm audit"],
+      "terraform": ["tfsec", "checkov"]
+    }
+  },
+  "documentation": {
+    "autoGenerate": false,
+    "style": {
+      "python": "google",
+      "typescript": "tsdoc"
+    }
+  },
+  "git": {
+    "commitMessageFormat": "conventional",
+    "requireTests": false,
+    "branchNamingConvention": "feature/|bugfix/|hotfix/|release/"
+  },
+  "customSettings": {
+    "projectType": "multi-language",
+    "supportedLanguages": ["python", "typescript", "terraform"],
+    "preferredFrameworks": {
+      "python": ["fastapi", "django"],
+      "typescript": ["react", "nextjs", "nestjs"]
+    },
+    "cloudProviders": ["aws", "azure", "gcp"]
+  },
+  "projectPreferences": {
+    "enabled": true,
+    "preferencesFile": ".claude/project-preferences.md",
+    "requirementConformance": {
+      "enforceCompletionChecklist": true,
+      "preventWireframeImplementations": true,
+      "requireVerticalSlices": true,
+      "mandatoryTodoTracking": true
+    }
+  }
+}

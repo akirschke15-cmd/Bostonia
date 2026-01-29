@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+# Hook: skill-activation-prompt
+# Type: UserPromptSubmit
+# Description: Automatically suggests relevant skills based on user prompts and file context
+
+# This hook analyzes the user's prompt and working directory to suggest appropriate skills
+# It checks for skill-rules.json existence to enable skill auto-activation
+
+set -euo pipefail
+
+# Read the user prompt from stdin
+USER_PROMPT=$(cat)
+
+# Get current working directory files
+CURRENT_FILES=$(find . -maxdepth 2 -type f 2>/dev/null | head -20 || echo "")
+
+# Read skill rules if available
+SKILL_RULES_FILE=".claude/skills/skill-rules.json"
+if [[ ! -f "$SKILL_RULES_FILE" ]]; then
+    # No skill rules, exit silently
+    exit 0
+fi
+
+# Parse skill rules and find matches
+MATCHED_SKILLS=()
+
+# Check for Python
+if echo "$USER_PROMPT" | grep -Eqi "python|pytest|django|flask|fastapi|pip|\.py" || \
+   echo "$CURRENT_FILES" | grep -Eq "\.(py|pyc)$|requirements\.txt|pyproject\.toml"; then
+    MATCHED_SKILLS+=("python-development")
+fi
+
+# Check for TypeScript/JavaScript
+if echo "$USER_PROMPT" | grep -Eqi "typescript|javascript|react|vue|angular|node|npm|\.tsx?|\.jsx?" || \
+   echo "$CURRENT_FILES" | grep -Eq "\.(ts|tsx|js|jsx)$|package\.json|tsconfig\.json"; then
+    MATCHED_SKILLS+=("typescript-development")
+fi
+
+# Check for Terraform
+if echo "$USER_PROMPT" | grep -Eqi "terraform|infrastructure|aws|azure|gcp|\.tf|tfvars" || \
+   echo "$CURRENT_FILES" | grep -Eq "\.tf$|\.tfvars$"; then
+    MATCHED_SKILLS+=("terraform-infrastructure")
+fi
+
+# Check for testing
+if echo "$USER_PROMPT" | grep -Eqi "test|testing|jest|vitest|pytest|coverage|spec" || \
+   echo "$CURRENT_FILES" | grep -Eq "test.*\.(py|ts|js)|spec\.(ts|js)"; then
+    MATCHED_SKILLS+=("testing-best-practices")
+fi
+
+# If we found matching skills, suggest them
+if [[ ${#MATCHED_SKILLS[@]} -gt 0 ]]; then
+    # Deduplicate
+    readarray -t UNIQUE_SKILLS < <(printf '%s\n' "${MATCHED_SKILLS[@]}" | sort -u)
+
+    # Only suggest if not too many (to avoid overwhelming)
+    if [[ ${#UNIQUE_SKILLS[@]} -le 3 ]]; then
+        echo ""
+        echo "🎯 Auto-loaded: ${UNIQUE_SKILLS[*]}"
+        echo ""
+    fi
+fi
+
+exit 0

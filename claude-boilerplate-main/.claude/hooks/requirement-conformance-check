@@ -1,0 +1,195 @@
+#!/usr/bin/env bash
+# Requirement Conformance Check Hook
+# This hook validates conformance to requirements before marking features complete
+# It performs automated scans and surfaces failures
+
+set -e  # Exit on error
+
+# Initialize failure tracking
+FAILURES=0
+WARNINGS=()
+
+echo "🔍 REQUIREMENT CONFORMANCE CHECK"
+echo ""
+
+# Define core directories to scan
+CORE_DIRS=(
+  "frontend/src"
+  "backend/app"
+  "backend/worker"
+  "src"  # Generic for projects with different structures
+  "lib"  # Common library directory
+)
+
+# ============================================================================
+# 1. Scan for TODO comments in core directories
+# ============================================================================
+echo "📝 Checking for TODO comments in core directories..."
+TODO_COUNT=0
+
+for dir in "${CORE_DIRS[@]}"; do
+  if [ -d "$dir" ]; then
+    # Search for TODO, FIXME, HACK, XXX comments
+    TODO_FILES=$(grep -ril '\(TODO\|FIXME\|HACK\|XXX\)' "$dir" 2>/dev/null || true)
+    if [ -n "$TODO_FILES" ]; then
+      while IFS= read -r file; do
+        TODO_LINES=$(grep -n '\(TODO\|FIXME\|HACK\|XXX\)' "$file" 2>/dev/null || true)
+        if [ -n "$TODO_LINES" ]; then
+          TODO_COUNT=$((TODO_COUNT + $(echo "$TODO_LINES" | wc -l)))
+          WARNINGS+=("   📌 $file: $(echo "$TODO_LINES" | head -1 | cut -d: -f1) TODO found")
+        fi
+      done <<< "$TODO_FILES"
+    fi
+  fi
+done
+
+if [ $TODO_COUNT -gt 0 ]; then
+  echo "   ⚠️  Found $TODO_COUNT TODO/FIXME comments"
+  FAILURES=$((FAILURES + 1))
+else
+  echo "   ✅ No TODO comments found"
+fi
+
+# ============================================================================
+# 2. Search for mock/stub patterns in implementation files
+# ============================================================================
+echo ""
+echo "🎭 Checking for mock/stub patterns..."
+MOCK_COUNT=0
+
+# Frontend mock patterns (if directories exist)
+for frontend_dir in "frontend/src" "src" "app"; do
+  if [ -d "$frontend_dir" ]; then
+    FRONTEND_MOCKS=$(grep -ril '\(mockData\|MOCK_\|stub\|placeholder.*data\|fake.*data\)' "$frontend_dir" --include="*.tsx" --include="*.ts" --include="*.jsx" --include="*.js" 2>/dev/null || true)
+    if [ -n "$FRONTEND_MOCKS" ]; then
+      while IFS= read -r file; do
+        MOCK_LINES=$(grep -n '\(mockData\|MOCK_\|stub\|placeholder.*data\|fake.*data\)' "$file" 2>/dev/null || true)
+        if [ -n "$MOCK_LINES" ]; then
+          MOCK_COUNT=$((MOCK_COUNT + $(echo "$MOCK_LINES" | wc -l)))
+          WARNINGS+=("   🎭 $file: Mock/stub pattern detected")
+        fi
+      done <<< "$FRONTEND_MOCKS"
+    fi
+  fi
+done
+
+# Backend stub patterns (if directories exist)
+for backend_dir in "backend/app" "backend" "src" "lib"; do
+  if [ -d "$backend_dir" ]; then
+    BACKEND_STUBS=$(grep -ril '\(stub\|mock\|fake.*data\|placeholder\)' "$backend_dir" --include="*.py" 2>/dev/null || true)
+    if [ -n "$BACKEND_STUBS" ]; then
+      while IFS= read -r file; do
+        # Exclude test files
+        if [[ ! "$file" =~ test_ ]] && [[ ! "$file" =~ _test\.py ]] && [[ ! "$file" =~ /tests/ ]] && [[ ! "$file" =~ /__tests__/ ]]; then
+          STUB_LINES=$(grep -n '\(stub\|mock\|fake.*data\|placeholder\)' "$file" 2>/dev/null || true)
+          if [ -n "$STUB_LINES" ]; then
+            MOCK_COUNT=$((MOCK_COUNT + $(echo "$STUB_LINES" | wc -l)))
+            WARNINGS+=("   🎭 $file: Stub pattern detected")
+          fi
+        fi
+      done <<< "$BACKEND_STUBS"
+    fi
+  fi
+done
+
+if [ $MOCK_COUNT -gt 0 ]; then
+  echo "   ⚠️  Found $MOCK_COUNT mock/stub patterns"
+  FAILURES=$((FAILURES + 1))
+else
+  echo "   ✅ No mock/stub patterns found"
+fi
+
+# ============================================================================
+# 3. Check for hardcoded mock data in API calls
+# ============================================================================
+echo ""
+echo "🔌 Checking for hardcoded mock data in API calls..."
+API_MOCK_COUNT=0
+
+for frontend_dir in "frontend/src" "src" "app"; do
+  if [ -d "$frontend_dir" ]; then
+    # Look for commented out API calls with mock data fallback
+    API_MOCKS=$(grep -ril '\(\/\/.*fetch\|\/\/.*api\|\/\/.*axios\).*mock' "$frontend_dir" --include="*.tsx" --include="*.ts" --include="*.jsx" --include="*.js" 2>/dev/null || true)
+    if [ -n "$API_MOCKS" ]; then
+      while IFS= read -r file; do
+        API_MOCK_LINES=$(grep -n '\(\/\/.*fetch\|\/\/.*api\|\/\/.*axios\).*mock' "$file" 2>/dev/null || true)
+        if [ -n "$API_MOCK_LINES" ]; then
+          API_MOCK_COUNT=$((API_MOCK_COUNT + $(echo "$API_MOCK_LINES" | wc -l)))
+          WARNINGS+=("   🔌 $file: API mock pattern detected")
+        fi
+      done <<< "$API_MOCKS"
+    fi
+  fi
+done
+
+if [ $API_MOCK_COUNT -gt 0 ]; then
+  echo "   ⚠️  Found $API_MOCK_COUNT API mock patterns"
+  FAILURES=$((FAILURES + 1))
+else
+  echo "   ✅ No API mock patterns found"
+fi
+
+# ============================================================================
+# 4. Check for wireframe comments
+# ============================================================================
+echo ""
+echo "🖼️  Checking for wireframe/placeholder indicators..."
+WIREFRAME_COUNT=0
+
+for dir in "${CORE_DIRS[@]}"; do
+  if [ -d "$dir" ]; then
+    WIREFRAME_FILES=$(grep -ril '\(wireframe\|placeholder\|coming soon\|not implemented\)' "$dir" --include="*.tsx" --include="*.ts" --include="*.jsx" --include="*.js" --include="*.py" 2>/dev/null || true)
+    if [ -n "$WIREFRAME_FILES" ]; then
+      while IFS= read -r file; do
+        WIREFRAME_LINES=$(grep -n '\(wireframe\|placeholder\|coming soon\|not implemented\)' "$file" 2>/dev/null || true)
+        if [ -n "$WIREFRAME_LINES" ]; then
+          WIREFRAME_COUNT=$((WIREFRAME_COUNT + $(echo "$WIREFRAME_LINES" | wc -l)))
+          WARNINGS+=("   🖼️  $file: Wireframe indicator found")
+        fi
+      done <<< "$WIREFRAME_FILES"
+    fi
+  fi
+done
+
+if [ $WIREFRAME_COUNT -gt 0 ]; then
+  echo "   ⚠️  Found $WIREFRAME_COUNT wireframe indicators"
+  FAILURES=$((FAILURES + 1))
+else
+  echo "   ✅ No wireframe indicators found"
+fi
+
+# ============================================================================
+# Summary and Exit
+# ============================================================================
+echo ""
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+if [ $FAILURES -gt 0 ]; then
+  echo "❌ CONFORMANCE CHECK FAILED: $FAILURES issue(s) detected"
+  echo ""
+  echo "⚠️  WARNINGS:"
+  for warning in "${WARNINGS[@]}"; do
+    echo "$warning"
+  done
+  echo ""
+  echo "📋 Before marking feature complete, address the issues above or"
+  echo "   explain why they are acceptable (e.g., test fixtures, examples)."
+  echo ""
+  echo "📖 Reference: .claude/project-preferences.md for full requirements"
+  echo ""
+  # Return non-zero to indicate failure when used in CI
+  exit 1
+else
+  echo "✅ CONFORMANCE CHECK PASSED"
+  echo ""
+  echo "All automated checks passed. Manual verification checklist:"
+  echo ""
+  echo "1. ✅ All acceptance criteria from the PRD are met"
+  echo "2. ✅ Frontend is connected to real backend APIs (no mock data)"
+  echo "3. ✅ Backend is connected to real database (no stubs)"
+  echo "4. ✅ All integration points are functional"
+  echo "5. ✅ Manual testing confirms feature works end-to-end"
+  echo ""
+  echo "📋 Reference: .claude/project-preferences.md for full checklist"
+  exit 0
+fi

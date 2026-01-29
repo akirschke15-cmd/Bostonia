@@ -1,0 +1,133 @@
+name: Requirement Conformance Check
+
+on:
+  pull_request:
+    branches:
+      - main
+      - develop
+    paths:
+      - 'frontend/src/**'
+      - 'backend/app/**'
+      - 'backend/worker/**'
+      - 'src/**'
+      - 'lib/**'
+  push:
+    branches:
+      - main
+      - develop
+  workflow_dispatch:
+
+jobs:
+  conformance-check:
+    name: Requirement Conformance Validation
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Fetch all history for accurate file analysis
+
+      - name: Run Requirement Conformance Check
+        id: conformance
+        continue-on-error: true
+        run: |
+          echo "Running requirement conformance validation..."
+          .claude/hooks/requirement-conformance-check
+        shell: bash
+
+      - name: Report Results
+        if: always()
+        run: |
+          if [ "${{ steps.conformance.outcome }}" == "success" ]; then
+            echo "✅ Requirement conformance check passed"
+            exit 0
+          else
+            echo "❌ Requirement conformance check failed"
+            echo ""
+            echo "⚠️  Issues detected that may indicate incomplete implementation:"
+            echo "   - TODO/FIXME comments in core directories"
+            echo "   - Mock/stub patterns in implementation code"
+            echo "   - Hardcoded API mocks or placeholder data"
+            echo "   - Wireframe indicators or 'not implemented' comments"
+            echo ""
+            echo "📋 Review the check output above for specific files and locations."
+            echo "   Either address the issues or document why they are acceptable"
+            echo "   (e.g., test fixtures, example code, legitimate placeholders)."
+            echo ""
+            echo "📖 Reference: .claude/project-preferences.md"
+            exit 1
+          fi
+
+      - name: Comment PR (on failure)
+        if: failure() && github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issue_number = context.issue.number;
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+
+            const comment = `## ⚠️ Requirement Conformance Check Failed
+
+            The automated requirement conformance validation detected potential issues with this implementation:
+
+            ### Common Issues:
+            - 📌 TODO/FIXME comments in core implementation code
+            - 🎭 Mock/stub patterns in non-test files
+            - 🔌 Hardcoded mock data instead of real API calls
+            - 🖼️ Wireframe indicators or "not implemented" comments
+
+            ### Next Steps:
+            1. Review the workflow output for specific file locations
+            2. Either fix the issues or document why they are acceptable
+            3. If the issues are legitimate (e.g., test fixtures, examples), add a comment explaining
+
+            ### Reference:
+            - [Project Preferences](.claude/project-preferences.md) - Implementation standards
+            - [Conformance Framework](.claude/REQUIREMENT-CONFORMANCE-FRAMEWORK.md) - Requirements
+
+            **Note:** This check helps prevent incomplete implementations and requirement drift. If you believe this is a false positive, please explain in a comment.
+            `;
+
+            github.rest.issues.createComment({
+              owner: owner,
+              repo: repo,
+              issue_number: issue_number,
+              body: comment
+            });
+
+      - name: Set Status Check
+        if: always()
+        run: |
+          if [ "${{ steps.conformance.outcome }}" != "success" ]; then
+            echo "Conformance check failed - marking as failure"
+            exit 1
+          fi
+
+  conformance-summary:
+    name: Conformance Summary
+    runs-on: ubuntu-latest
+    needs: [conformance-check]
+    if: always()
+
+    steps:
+      - name: Conformance Status
+        run: |
+          if [ "${{ needs.conformance-check.result }}" == "success" ]; then
+            echo "✅ All requirement conformance checks passed"
+            echo ""
+            echo "This implementation meets the conformance criteria:"
+            echo "  - No TODO/FIXME comments in core code"
+            echo "  - No mock/stub patterns in implementation"
+            echo "  - No hardcoded mock data"
+            echo "  - No wireframe indicators"
+            echo ""
+            echo "Ready for manual verification and testing."
+          else
+            echo "❌ Requirement conformance check failed"
+            echo ""
+            echo "See the detailed job output for specific issues."
+            echo "Review .claude/project-preferences.md for implementation standards."
+            exit 1
+          fi

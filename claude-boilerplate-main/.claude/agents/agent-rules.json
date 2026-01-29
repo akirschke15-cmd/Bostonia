@@ -1,0 +1,579 @@
+{
+  "agents": [
+    {
+      "name": "product-manager",
+      "path": ".claude/agents/00-product/product-manager.md",
+      "description": "Requirements analysis, user stories, acceptance criteria, PRD creation",
+      "triggers": {
+        "keywords": [
+          "requirements",
+          "user story",
+          "user stories",
+          "acceptance criteria",
+          "PRD",
+          "product requirements",
+          "feature request",
+          "business requirements",
+          "product spec",
+          "specification",
+          "backlog",
+          "prioritization",
+          "success metrics",
+          "KPIs",
+          "stakeholder"
+        ],
+        "phrases": [
+          "refine requirements",
+          "create user stories",
+          "define acceptance criteria",
+          "write product requirements",
+          "analyze requirements",
+          "what should we build",
+          "feature specification"
+        ],
+        "antiPatterns": [
+          "implement",
+          "code",
+          "debug",
+          "fix bug"
+        ]
+      },
+      "autoActivate": true,
+      "priority": "critical",
+      "phase": "requirements"
+    },
+    {
+      "name": "system-architect",
+      "path": ".claude/agents/03-architecture/system-architect.md",
+      "description": "System design, architecture decisions, trade-offs",
+      "triggers": {
+        "keywords": [
+          "architecture",
+          "design",
+          "system design",
+          "architect",
+          "scalability",
+          "design pattern",
+          "microservices",
+          "monolith",
+          "database schema",
+          "trade-off",
+          "technical design",
+          "architecture decision"
+        ],
+        "phrases": [
+          "design the system",
+          "architecture for",
+          "how should we structure",
+          "design approach",
+          "technical architecture"
+        ]
+      },
+      "autoActivate": true,
+      "priority": "critical",
+      "phase": "design"
+    },
+    {
+      "name": "api-designer",
+      "path": ".claude/agents/03-architecture/api-designer.md",
+      "description": "RESTful/GraphQL API design, versioning, documentation",
+      "triggers": {
+        "keywords": [
+          "API",
+          "endpoint",
+          "REST",
+          "GraphQL",
+          "API design",
+          "OpenAPI",
+          "swagger",
+          "API documentation",
+          "API versioning",
+          "API contract"
+        ],
+        "phrases": [
+          "design API",
+          "API endpoints",
+          "API structure",
+          "REST API",
+          "GraphQL schema"
+        ]
+      },
+      "autoActivate": true,
+      "priority": "high",
+      "phase": "design"
+    },
+    {
+      "name": "ui-designer",
+      "path": ".claude/agents/03-architecture/ui-designer.md",
+      "description": "UI/UX design, design systems, accessibility, responsive design",
+      "triggers": {
+        "keywords": [
+          "UI design",
+          "UX design",
+          "user interface design",
+          "design system",
+          "component design",
+          "visual design",
+          "design tokens",
+          "design specifications",
+          "design specs",
+          "wireframe",
+          "mockup",
+          "prototype",
+          "layout design",
+          "responsive design",
+          "accessibility design",
+          "interaction design",
+          "design handoff"
+        ],
+        "phrases": [
+          "design the UI",
+          "design the interface",
+          "design the layout",
+          "create design specs",
+          "design specifications",
+          "design system",
+          "how should this look",
+          "what should the UI look like",
+          "design components",
+          "user experience design"
+        ],
+        "antiPatterns": [
+          "implement UI",
+          "code the UI",
+          "build the UI"
+        ]
+      },
+      "autoActivate": true,
+      "priority": "high",
+      "phase": "design"
+    },
+    {
+      "name": "frontend-engineer",
+      "path": ".claude/agents/02-role-specialists/frontend-engineer.md",
+      "description": "UI/UX patterns, React, accessibility, responsive design",
+      "triggers": {
+        "keywords": [
+          "frontend",
+          "UI",
+          "component",
+          "React",
+          "Vue",
+          "Angular",
+          "CSS",
+          "HTML",
+          "responsive",
+          "accessibility",
+          "a11y",
+          "user interface"
+        ],
+        "phrases": [
+          "build UI",
+          "create component",
+          "frontend implementation",
+          "user interface"
+        ],
+        "filePatterns": [
+          "**/*.tsx",
+          "**/*.jsx",
+          "**/components/**",
+          "**/pages/**"
+        ]
+      },
+      "autoActivate": true,
+      "priority": "high",
+      "phase": "implementation"
+    },
+    {
+      "name": "backend-engineer",
+      "path": ".claude/agents/02-role-specialists/backend-engineer.md",
+      "description": "Service architecture, APIs, databases, scalability",
+      "triggers": {
+        "keywords": [
+          "backend",
+          "server",
+          "API implementation",
+          "database",
+          "middleware",
+          "authentication",
+          "authorization",
+          "caching",
+          "queue",
+          "service"
+        ],
+        "phrases": [
+          "backend service",
+          "server-side",
+          "API endpoint",
+          "database query"
+        ],
+        "filePatterns": [
+          "**/api/**",
+          "**/routes/**",
+          "**/controllers/**",
+          "**/services/**",
+          "**/models/**"
+        ]
+      },
+      "autoActivate": true,
+      "priority": "high",
+      "phase": "implementation"
+    },
+    {
+      "name": "fullstack-engineer",
+      "path": ".claude/agents/02-role-specialists/fullstack-engineer.md",
+      "description": "Full-stack development combining frontend and backend",
+      "triggers": {
+        "keywords": [
+          "fullstack",
+          "full-stack",
+          "full stack",
+          "end-to-end"
+        ],
+        "phrases": [
+          "full stack feature",
+          "end to end implementation",
+          "frontend and backend"
+        ]
+      },
+      "autoActivate": true,
+      "priority": "high",
+      "phase": "implementation"
+    },
+    {
+      "name": "python-expert",
+      "path": ".claude/agents/01-language-specialists/python-expert.md",
+      "description": "Python frameworks, async patterns, testing",
+      "triggers": {
+        "keywords": [
+          "python",
+          "django",
+          "flask",
+          "fastapi",
+          "pytest",
+          "asyncio",
+          "pandas",
+          "numpy"
+        ],
+        "filePatterns": [
+          "**/*.py",
+          "**/requirements.txt",
+          "**/pyproject.toml",
+          "**/setup.py"
+        ]
+      },
+      "autoActivate": true,
+      "priority": "high",
+      "phase": "implementation"
+    },
+    {
+      "name": "typescript-expert",
+      "path": ".claude/agents/01-language-specialists/typescript-expert.md",
+      "description": "TypeScript, React, Next.js patterns",
+      "triggers": {
+        "keywords": [
+          "typescript",
+          "javascript",
+          "react",
+          "next.js",
+          "node",
+          "express",
+          "nestjs"
+        ],
+        "filePatterns": [
+          "**/*.ts",
+          "**/*.tsx",
+          "**/*.js",
+          "**/*.jsx",
+          "**/package.json",
+          "**/tsconfig.json"
+        ]
+      },
+      "autoActivate": true,
+      "priority": "high",
+      "phase": "implementation"
+    },
+    {
+      "name": "terraform-expert",
+      "path": ".claude/agents/01-language-specialists/terraform-expert.md",
+      "description": "Infrastructure as code, multi-cloud patterns",
+      "triggers": {
+        "keywords": [
+          "terraform",
+          "infrastructure as code",
+          "IaC",
+          "tfvars",
+          "terraform module"
+        ],
+        "filePatterns": [
+          "**/*.tf",
+          "**/*.tfvars",
+          "**/.terraform.lock.hcl"
+        ]
+      },
+      "autoActivate": true,
+      "priority": "high",
+      "phase": "implementation"
+    },
+    {
+      "name": "test-architect",
+      "path": ".claude/agents/04-quality/test-architect.md",
+      "description": "Test strategy design, test architecture, testing approach optimization",
+      "triggers": {
+        "keywords": [
+          "test strategy",
+          "testing strategy",
+          "test approach",
+          "testing approach",
+          "test architecture",
+          "test pyramid",
+          "testing pyramid",
+          "test design",
+          "test plan design",
+          "test suite design",
+          "test optimization",
+          "coverage strategy",
+          "testing methodology",
+          "jest",
+          "pytest",
+          "vitest",
+          "playwright",
+          "cypress",
+          "test framework"
+        ],
+        "phrases": [
+          "optimize test",
+          "optimize testing",
+          "improve test strategy",
+          "improve testing strategy",
+          "design test strategy",
+          "design testing approach",
+          "test architecture",
+          "testing architecture",
+          "set up testing",
+          "setup testing framework",
+          "how should we test",
+          "what testing approach",
+          "testing best practices",
+          "test coverage approach",
+          "test automation strategy"
+        ],
+        "antiPatterns": [
+          "run tests",
+          "run the tests",
+          "execute tests",
+          "test this code",
+          "test this feature"
+        ]
+      },
+      "autoActivate": true,
+      "priority": "critical",
+      "phase": "testing"
+    },
+    {
+      "name": "qa-engineer",
+      "path": ".claude/agents/04-quality/qa-engineer.md",
+      "description": "Test execution, test case implementation, acceptance criteria validation",
+      "triggers": {
+        "keywords": [
+          "QA",
+          "quality assurance",
+          "test case",
+          "test cases",
+          "acceptance criteria",
+          "validate requirements",
+          "test execution",
+          "run tests",
+          "test results",
+          "test report",
+          "verification testing",
+          "validation testing",
+          "regression testing"
+        ],
+        "phrases": [
+          "test this",
+          "run the tests",
+          "execute tests",
+          "create test cases",
+          "write tests for",
+          "implement tests",
+          "test coverage",
+          "validate functionality",
+          "quality check",
+          "verify acceptance criteria",
+          "test against requirements"
+        ],
+        "antiPatterns": [
+          "test strategy",
+          "test architecture",
+          "testing approach",
+          "optimize test",
+          "design test"
+        ]
+      },
+      "autoActivate": true,
+      "priority": "high",
+      "phase": "testing"
+    },
+    {
+      "name": "code-reviewer",
+      "path": ".claude/agents/04-quality/code-reviewer.md",
+      "description": "Code quality, security vulnerabilities, best practices",
+      "triggers": {
+        "keywords": [
+          "review",
+          "code review",
+          "pull request",
+          "PR",
+          "feedback",
+          "code quality"
+        ],
+        "phrases": [
+          "review this code",
+          "review the PR",
+          "code review",
+          "check the code"
+        ]
+      },
+      "autoActivate": true,
+      "priority": "critical",
+      "phase": "review"
+    },
+    {
+      "name": "security-auditor",
+      "path": ".claude/agents/04-quality/security-auditor.md",
+      "description": "Security audits, OWASP Top 10, vulnerability scanning",
+      "triggers": {
+        "keywords": [
+          "security",
+          "vulnerability",
+          "OWASP",
+          "security audit",
+          "penetration test",
+          "exploit",
+          "XSS",
+          "SQL injection",
+          "authentication",
+          "authorization"
+        ],
+        "phrases": [
+          "security review",
+          "security audit",
+          "check for vulnerabilities",
+          "security issues"
+        ]
+      },
+      "autoActivate": true,
+      "priority": "critical",
+      "phase": "review"
+    },
+    {
+      "name": "devops-engineer",
+      "path": ".claude/agents/05-infrastructure/devops-engineer.md",
+      "description": "CI/CD pipelines, deployment strategies, infrastructure automation",
+      "triggers": {
+        "keywords": [
+          "CI/CD",
+          "deployment",
+          "docker",
+          "kubernetes",
+          "pipeline",
+          "devops",
+          "containerization",
+          "orchestration"
+        ],
+        "phrases": [
+          "set up CI/CD",
+          "deployment pipeline",
+          "infrastructure automation"
+        ]
+      },
+      "autoActivate": true,
+      "priority": "high",
+      "phase": "deployment"
+    },
+    {
+      "name": "technical-writer",
+      "path": ".claude/agents/06-documentation/technical-writer.md",
+      "description": "Technical writing, API docs, architecture diagrams",
+      "triggers": {
+        "keywords": [
+          "documentation",
+          "docs",
+          "README",
+          "document",
+          "explain",
+          "diagram"
+        ],
+        "phrases": [
+          "write documentation",
+          "document this",
+          "create docs",
+          "API documentation"
+        ]
+      },
+      "autoActivate": true,
+      "priority": "medium",
+      "phase": "documentation"
+    },
+    {
+      "name": "debugger",
+      "path": ".claude/agents/07-troubleshooting/debugger.md",
+      "description": "Debugging strategies, root cause analysis",
+      "triggers": {
+        "keywords": [
+          "bug",
+          "debug",
+          "error",
+          "issue",
+          "problem",
+          "not working",
+          "broken",
+          "troubleshoot"
+        ],
+        "phrases": [
+          "fix the bug",
+          "debug this",
+          "what's wrong",
+          "not working",
+          "troubleshoot"
+        ]
+      },
+      "autoActivate": true,
+      "priority": "high",
+      "phase": "troubleshooting"
+    },
+    {
+      "name": "performance-optimizer",
+      "path": ".claude/agents/07-troubleshooting/performance-optimizer.md",
+      "description": "Performance tuning, profiling, bottleneck analysis",
+      "triggers": {
+        "keywords": [
+          "performance",
+          "slow",
+          "optimize",
+          "bottleneck",
+          "profiling",
+          "latency",
+          "speed up"
+        ],
+        "phrases": [
+          "improve performance",
+          "optimize this",
+          "running slow",
+          "performance issue"
+        ]
+      },
+      "autoActivate": true,
+      "priority": "high",
+      "phase": "troubleshooting"
+    }
+  ],
+  "globalSettings": {
+    "maxActiveAgents": 3,
+    "confidenceThreshold": 0.7,
+    "suggestionMode": "auto",
+    "phaseAwareness": true,
+    "contextWindow": 3
+  }
+}
