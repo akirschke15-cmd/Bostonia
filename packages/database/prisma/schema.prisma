@@ -748,3 +748,411 @@ model Follow {
   @@index([followerId])
   @@index([followingId])
 }
+
+// ============================================================================
+// FRAUD DETECTION SYSTEM
+// ============================================================================
+
+// Device fingerprinting and session tracking
+model DeviceFingerprint {
+  id                   String    @id @default(uuid())
+  fingerprintHash      String    @unique  // Hash of collected signals
+  userAgent            String?
+  screenResolution     String?
+  timezone             String?
+  language             String?
+  platform             String?
+  webglRenderer        String?
+  canvasHash           String?   // Canvas fingerprint
+  audioHash            String?   // AudioContext fingerprint
+  fonts                String[]  @default([])
+  plugins              String[]  @default([])
+  firstSeenAt          DateTime  @default(now())
+  lastSeenAt           DateTime  @updatedAt
+
+  // Relations
+  sessions             UserSession[]
+
+  @@index([fingerprintHash])
+  @@index([firstSeenAt])
+}
+
+model UserSession {
+  id                   String    @id @default(uuid())
+  userId               String
+  deviceFingerprintId  String?
+  ipAddress            String
+  ipCountry            String?
+  ipCity               String?
+  ipAsn                String?   // Autonomous System Number (ISP/hosting)
+  isVpn                Boolean   @default(false)
+  isProxy              Boolean   @default(false)
+  isDatacenter         Boolean   @default(false)
+  isTor                Boolean   @default(false)
+  startedAt            DateTime  @default(now())
+  endedAt              DateTime?
+  lastActivityAt       DateTime  @default(now())
+
+  // Behavioral metrics (updated in real-time)
+  messageCount         Int       @default(0)
+  avgTypingSpeedMs     Float?    // Average ms between keystrokes
+  avgResponseTimeMs    Float?    // Average ms to respond to AI
+  avgMessageLength     Float?
+  uniqueCharacters     Int       @default(0)  // Distinct characters chatted with
+
+  // Risk assessment
+  riskScore            Float     @default(0)
+  riskFactors          Json      @default("[]")
+
+  // Relations
+  deviceFingerprint    DeviceFingerprint? @relation(fields: [deviceFingerprintId], references: [id])
+  events               FraudEvent[]
+
+  @@index([userId])
+  @@index([deviceFingerprintId])
+  @@index([ipAddress])
+  @@index([startedAt])
+  @@index([riskScore])
+}
+
+// Granular interaction tracking for fraud analysis
+model InteractionEvent {
+  id                   String    @id @default(uuid())
+  sessionId            String
+  userId               String
+  characterId          String
+  creatorId            String    // Denormalized for query efficiency
+  conversationId       String
+  eventType            InteractionEventType
+
+  // Timing data
+  timestamp            DateTime  @default(now())
+  messageLength        Int?
+  typingDurationMs     Int?      // How long user typed
+  timeSinceLastMessage Int?      // Ms since last message in conversation
+
+  // Context
+  hourOfDay            Int       // 0-23
+  dayOfWeek            Int       // 0-6
+  isWeekend            Boolean
+
+  @@index([userId, timestamp])
+  @@index([characterId, timestamp])
+  @@index([creatorId, timestamp])
+  @@index([sessionId])
+  @@index([eventType])
+}
+
+enum InteractionEventType {
+  MESSAGE_SENT
+  MESSAGE_RECEIVED
+  CONVERSATION_STARTED
+  CONVERSATION_ENDED
+  CHARACTER_FAVORITED
+  CHARACTER_RATED
+}
+
+// Aggregated metrics for batch analysis
+model CreatorMetricsDaily {
+  id                   String    @id @default(uuid())
+  creatorId            String
+  date                 DateTime  @db.Date
+
+  // Volume metrics
+  totalMessages        Int       @default(0)
+  totalConversations   Int       @default(0)
+  uniqueUsers          Int       @default(0)
+  totalDurationMinutes Int       @default(0)
+
+  // Quality metrics
+  avgMessagesPerConv   Float     @default(0)
+  avgConvDurationMin   Float     @default(0)
+  returnUserRate       Float     @default(0)  // % users who came back
+
+  // Suspicious activity counts
+  singleMsgConvs       Int       @default(0)  // Conversations with only 1 user msg
+  rapidFireSessions    Int       @default(0)  // Sessions with > 100 msgs/hour
+  newAccountInteracts  Int       @default(0)  // Interactions from < 24hr accounts
+  sameIpUsers          Int       @default(0)  // Unique users from same IP
+  sameFingerprintUsers Int       @default(0)  // Unique users from same device
+
+  // Revenue attribution
+  revenueAttributed    Int       @default(0)  // Cents
+
+  // Anomaly scores (computed by ML)
+  volumeAnomalyScore   Float?
+  patternAnomalyScore  Float?
+  networkAnomalyScore  Float?
+  overallRiskScore     Float?
+
+  @@unique([creatorId, date])
+  @@index([creatorId])
+  @@index([date])
+  @@index([overallRiskScore])
+}
+
+// User-to-User relationship graph for collusion detection
+model UserRelationship {
+  id                   String    @id @default(uuid())
+  userAId              String
+  userBId              String
+  relationshipType     UserRelationType
+  strength             Float     @default(0)  // 0-1 score
+
+  // Shared attributes
+  sharedIpAddresses    String[]  @default([])
+  sharedDevices        String[]  @default([])
+  sharedPaymentMethods String[]  @default([])
+  mutualCharacters     String[]  @default([])  // Characters both interact with
+
+  firstDetectedAt      DateTime  @default(now())
+  lastUpdatedAt        DateTime  @updatedAt
+
+  @@unique([userAId, userBId])
+  @@index([userAId])
+  @@index([userBId])
+  @@index([relationshipType])
+  @@index([strength])
+}
+
+enum UserRelationType {
+  SAME_DEVICE       // Same device fingerprint
+  SAME_IP           // Same IP address
+  SAME_NETWORK      // Same /24 subnet or ASN
+  PAYMENT_LINKED    // Shared payment method
+  BEHAVIORAL_MATCH  // Similar behavioral patterns
+  TEMPORAL_MATCH    // Always active at same times
+  CREATOR_FAN       // One is creator, other fans their characters
+}
+
+// Fraud investigation cases
+model FraudCase {
+  id                   String    @id @default(uuid())
+  caseNumber           String    @unique  // Human-readable: FRD-2024-00001
+  status               FraudCaseStatus @default(OPEN)
+  priority             FraudCasePriority @default(MEDIUM)
+
+  // Subject(s)
+  primaryUserId        String
+  relatedUserIds       String[]  @default([])
+  relatedCharacterIds  String[]  @default([])
+
+  // Detection info
+  detectionMethod      String    // "realtime_velocity", "batch_pattern", "ml_anomaly"
+  triggerEventId       String?   // Original event that triggered
+  triggerRuleId        String?   // Rule that was violated
+
+  // Risk assessment
+  initialRiskScore     Float
+  currentRiskScore     Float
+  estimatedImpact      Int       @default(0)  // Cents of potential fraud
+
+  // Evidence
+  evidenceSummary      String?   @db.Text
+  evidenceData         Json      @default("{}")
+
+  // Timeline
+  detectedAt           DateTime  @default(now())
+  assignedAt           DateTime?
+  assignedTo           String?   // Admin user ID
+  resolvedAt           DateTime?
+  resolution           FraudCaseResolution?
+  resolutionNotes      String?   @db.Text
+
+  // Relations
+  actionsTaken         FraudAction[]
+  appeal               FraudAppeal?
+
+  @@index([status])
+  @@index([priority])
+  @@index([primaryUserId])
+  @@index([detectedAt])
+  @@index([assignedTo])
+}
+
+enum FraudCaseStatus {
+  OPEN
+  INVESTIGATING
+  PENDING_REVIEW
+  RESOLVED
+  APPEALED
+  CLOSED
+}
+
+enum FraudCasePriority {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum FraudCaseResolution {
+  CONFIRMED_FRAUD
+  SUSPECTED_FRAUD
+  FALSE_POSITIVE
+  INSUFFICIENT_EVIDENCE
+  POLICY_VIOLATION
+}
+
+// Actions taken in response to fraud
+model FraudAction {
+  id                   String    @id @default(uuid())
+  caseId               String
+  actionType           FraudActionType
+  targetUserId         String?
+  targetCharacterId    String?
+
+  // Details
+  severity             String    // "warning", "temporary", "permanent"
+  duration             Int?      // Duration in hours for temporary actions
+  reason               String
+
+  // Execution
+  isAutomated          Boolean   @default(false)
+  executedAt           DateTime  @default(now())
+  executedBy           String?   // Admin user ID or "system"
+  reversedAt           DateTime?
+  reversedBy           String?
+  reverseReason        String?
+
+  // Relations
+  case                 FraudCase @relation(fields: [caseId], references: [id])
+
+  @@index([caseId])
+  @@index([targetUserId])
+  @@index([actionType])
+  @@index([executedAt])
+}
+
+enum FraudActionType {
+  REVENUE_HOLD          // Hold pending payouts
+  REVENUE_CLAWBACK      // Reverse attributed revenue
+  RATE_LIMIT            // Stricter rate limits
+  SHADOW_BAN            // Don't count toward revenue
+  TEMPORARY_SUSPEND     // Temporary account suspension
+  PERMANENT_BAN         // Permanent ban
+  PAYOUT_BLOCK          // Block future payouts
+  WARNING_ISSUED        // Just a warning
+  MONITORING_INCREASED  // Flag for closer monitoring
+}
+
+// Appeal process
+model FraudAppeal {
+  id                   String    @id @default(uuid())
+  caseId               String    @unique
+  appealNumber         String    @unique  // APL-2024-00001
+  status               AppealStatus @default(SUBMITTED)
+
+  // Appellant info
+  userId               String
+  contactEmail         String
+
+  // Appeal content
+  appealReason         String    @db.Text
+  supportingEvidence   Json      @default("[]")  // Links, screenshots, etc.
+
+  // Process
+  submittedAt          DateTime  @default(now())
+  acknowledgedAt       DateTime?
+  reviewStartedAt      DateTime?
+  reviewerId           String?
+
+  // Internal notes (not visible to appellant)
+  internalNotes        String?   @db.Text
+
+  // Decision
+  decision             AppealDecision?
+  decisionReason       String?   @db.Text
+  decidedAt            DateTime?
+  decidedBy            String?
+
+  // Follow-up
+  compensationOffered  Int?      // Cents
+  compensationAccepted Boolean?
+
+  // Relations
+  case                 FraudCase @relation(fields: [caseId], references: [id])
+
+  @@index([userId])
+  @@index([status])
+  @@index([submittedAt])
+}
+
+enum AppealStatus {
+  SUBMITTED
+  ACKNOWLEDGED
+  UNDER_REVIEW
+  ADDITIONAL_INFO_REQUESTED
+  DECIDED
+  CLOSED
+}
+
+enum AppealDecision {
+  UPHELD            // Original decision stands
+  OVERTURNED        // Fraud finding reversed
+  PARTIALLY_UPHELD  // Some actions reversed
+  ESCALATED         // Sent to higher review
+}
+
+// Fraud detection rules (configurable)
+model FraudRule {
+  id                   String    @id @default(uuid())
+  name                 String
+  description          String?
+  category             String    // "velocity", "behavioral", "network", "ml"
+  isActive             Boolean   @default(true)
+
+  // Rule definition
+  ruleType             String    // "threshold", "pattern", "ml_score"
+  ruleConfig           Json      // Rule-specific configuration
+
+  // Thresholds
+  warningThreshold     Float?
+  blockThreshold       Float?
+
+  // Actions
+  autoAction           FraudActionType?
+  requiresReview       Boolean   @default(true)
+
+  // Performance tracking
+  triggeredCount       Int       @default(0)
+  falsePositiveCount   Int       @default(0)
+  truePositiveCount    Int       @default(0)
+
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  @@index([category])
+  @@index([isActive])
+}
+
+// Real-time fraud events
+model FraudEvent {
+  id                   String    @id @default(uuid())
+  sessionId            String?
+  userId               String
+  ruleId               String?
+  eventType            String
+  severity             String    // "low", "medium", "high", "critical"
+
+  // Context
+  details              Json
+  riskScore            Float
+
+  // Processing
+  wasActioned          Boolean   @default(false)
+  actionTaken          String?
+  caseId               String?   // If escalated to a case
+
+  timestamp            DateTime  @default(now())
+
+  // Relations
+  session              UserSession? @relation(fields: [sessionId], references: [id])
+
+  @@index([userId])
+  @@index([sessionId])
+  @@index([eventType])
+  @@index([severity])
+  @@index([timestamp])
+  @@index([caseId])
+}
